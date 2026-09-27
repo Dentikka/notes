@@ -41,7 +41,7 @@ class Pluck(Instrument):
     pick: float = 0.2
     body: float = 0.5
     release: float = 0.08
-    level: float = 0.5
+    level: float = 0.84
 
     def release_time(self) -> float:
         return self.release
@@ -86,7 +86,7 @@ class ElectricGuitar(Instrument):
 
     def voice(self, v: Voice, ctx: RenderContext, rng: np.random.Generator) -> np.ndarray:
         muted = bool(v.params.get("palm_mute", False))
-        t60 = 0.12 if muted else _t60(self.sustain, v.freq)
+        t60 = 0.25 if muted else _t60(self.sustain, v.freq)
         brightness = self.brightness * (0.45 if muted else 1.0)
         gate = ctx.samples(v.dur)
         n = gate + ctx.samples(self.release)

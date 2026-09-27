@@ -90,7 +90,7 @@ class Bass(Synth):
     sustain: float = 0.7
     release: float = 0.06
     drive: float = 0.25
-    level: float = 0.55
+    level: float = 0.46
 
 
 @register_instrument("pad")
@@ -107,7 +107,7 @@ class Pad(Synth):
     decay: float = 1.0
     sustain: float = 0.85
     release: float = 1.2
-    level: float = 0.3
+    level: float = 0.4
 
 
 @register_instrument("lead")
@@ -125,4 +125,4 @@ class Lead(Synth):
     attack: float = 0.01
     sustain: float = 0.7
     release: float = 0.15
-    level: float = 0.35
+    level: float = 0.3

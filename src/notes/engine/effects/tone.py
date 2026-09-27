@@ -72,7 +72,8 @@ class GuitarAmp(Effect):
     """Guitar amplifier: tightening high-pass, mid push, asymmetric soft clipping, tone tilt.
 
     `drive` sets the pre-gain from +3 dB (clean) to +42 dB (heavy); the bias makes clipping
-    asymmetric, which adds the even harmonics of a tube stage.
+    asymmetric, which adds the even harmonics of a tube stage. The output is compensated by
+    up to -12 dB as drive rises, so turning up the gain changes the character, not the level.
     """
 
     drive: float = 0.5
@@ -89,7 +90,7 @@ class GuitarAmp(Effect):
         tilt = (self.tone - 0.5) * 12.0
         y = filt(y, "lowshelf", 250.0, sr, 0.7071, -0.5 * tilt)
         y = filt(y, "highshelf", 2500.0, sr, 0.7071, tilt)
-        return self.level * y
+        return self.level * db_to_gain(-12.0 * (1.0 - np.exp(-d / 0.25))) * y
 
 
 @register_effect("cabinet")

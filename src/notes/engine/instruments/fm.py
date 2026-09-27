@@ -63,6 +63,7 @@ class EPiano(FM):
     tine: float = 0.35
     decay: float = 2.5
     release: float = 0.25
+    level: float = 0.38
 
 
 @register_instrument("bell")
@@ -76,4 +77,4 @@ class Bell(FM):
     index_decay: float = 1.2
     decay: float = 4.0
     release: float = 1.5
-    level: float = 0.3
+    level: float = 0.28
