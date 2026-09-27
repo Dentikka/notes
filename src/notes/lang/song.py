@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from notes.engine.base import Effect, Instrument
 from notes.ir.score import Marker, NoteEvent, Score, TrackSpec
-from notes.lang.music import BeatsLike, Music, beats, cat, parse_meter
+from notes.lang.music import BeatsLike, Music, beats, cat, parse_meter, stack
 from notes.lang.perform import perform
 
 if TYPE_CHECKING:
@@ -44,6 +44,19 @@ class Track:
 
     def __call__(self, *music: Music | Iterable[Music]) -> Music:
         return cat(*music).on(self)
+
+    def doubled(self, *music: Music | Iterable[Music], spread: float = 0.8, drift: float = 0.01) -> Music:
+        """Double-track a part: two takes on copies of this track panned to -/+`spread`.
+
+        The takes are tracks `<name>_L` and `<name>_R`, so their string noise differs (seeds
+        hash the track name), and each gets its own timing jitter of up to `drift` beats.
+        """
+        part = cat(*music)
+        takes = [
+            replace(self, name=f"{self.name}_{side}", pan=sign * spread)(part.humanize(time=drift, vel=0.05, seed=seed))
+            for side, sign, seed in (("L", -1.0, 1), ("R", 1.0, 2))
+        ]
+        return stack(*takes)
 
     def spec(self) -> TrackSpec:
         return TrackSpec(

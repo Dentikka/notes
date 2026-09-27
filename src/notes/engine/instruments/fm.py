@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from notes.engine.articulation import pitch_curve
 from notes.engine.base import Instrument, RenderContext, Voice
 from notes.engine.dsp import TAU, adsr, vel_gain
 from notes.engine.registry import register_instrument
@@ -43,7 +44,12 @@ class FM(Instrument):
         gate = ctx.samples(v.dur)
         n = gate + ctx.samples(self.release)
         t = np.arange(n) / sr
-        w = TAU * v.freq * t
+        curve = pitch_curve(v.params, n, sr)
+        if curve is None:
+            w = TAU * v.freq * t
+        else:
+            inc = v.freq * 2.0 ** (curve / 12.0) / sr
+            w = TAU * np.concatenate(([0.0], np.cumsum(inc[:-1])))
         index = self.index * (0.4 + 0.6 * v.vel) * np.exp(-t / max(self.index_decay, 1e-3))
         y = np.sin(w + index * np.sin(self.ratio * w))
         if self.tine:

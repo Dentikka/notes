@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+from _audio import estimate_f0
 
 from notes import (
     Bass,
@@ -24,17 +25,6 @@ from notes.export.midi import write_midi
 from notes.ir import TempoMap
 
 SR = 44100
-
-
-def estimate_f0(x: np.ndarray, sr: int) -> float:
-    """Autocorrelation peak with parabolic interpolation."""
-    x = x - x.mean()
-    spec = np.fft.rfft(x, 2 * len(x))
-    ac = np.fft.irfft(spec * np.conj(spec))[: len(x)]
-    lo = int(sr / 2000)
-    k = lo + int(np.argmax(ac[lo : len(x) // 2]))
-    a, b, c = ac[k - 1], ac[k], ac[k + 1]
-    return sr / (k + 0.5 * (a - c) / (a - 2 * b + c))
 
 
 @pytest.mark.parametrize("freq", [82.41, 110.0, 220.0, 440.0, 880.0])

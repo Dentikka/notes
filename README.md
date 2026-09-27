@@ -54,6 +54,8 @@ song.render("song.wav")
 | pitch | `.transpose(n)`, `.octave(n)`, `.invert("E4")` |
 | dynamics | `.velocity(k)`, `.legato(k)`, `.humanize(seed=…)`, `.param(palm_mute=True)` |
 | silence | `.mute(bars=4)`, `.mute(bars=[2, 6])`, `.mute(window=(0, 2))` |
+| expression | `.vibrato(0.3)`, `.bend(2)`, `.slide(-2)` — pitch curves for guitars, synths, FM |
+| production | `guitar.doubled(part)` — two takes panned apart, as rhythm guitars are recorded |
 | harmony | `.rhythm("x..x..x.")` re-strikes held chords, `.arp("updown")` arpeggiates |
 
 **Mini-notation** (strings, `|` bar lines ignored):
@@ -61,6 +63,7 @@ song.render("song.wav")
 ```python
 melody("A4 C5 E5 _ D5 . C5@2 [A3,C4,E4] G4> B4!2", step=E)   # _ hold, . rest, @n length,
                                                               # [..] chord, > accent, !n repeat
+melody("E5~@4 D5^2~@2 G5^")                                   # ~ vibrato, ^n bend n semitones
 steps(kick="x...x...", snare="....x...", hat="x.x.x.x.")      # x hit, X accent, o soft, 1-9
 steps(kick=euclid(3, 8), hat="x..", length=bars(2))           # Euclidean rhythms, polymeter
 chords("Am F C G", voicing="smooth")                          # chord symbols, voice-led
@@ -69,8 +72,9 @@ Key.parse("A minor").melody("1 3 5 8 b7")                     # scale degrees
 ```
 
 **Instruments**: `Synth` (subtractive) with `Bass`, `Pad`, `Lead`; `FM` with `EPiano`,
-`Bell`; `Pluck` and `ElectricGuitar` (Karplus–Strong strings, pickup model, amp and
-cabinet; `drive`, `tone`, `pickup`); `DrumKit` (808/909-style synthesis addressed by GM
+`Bell`; `Pluck` and `ElectricGuitar` (Karplus–Strong strings that follow bends and
+vibrato, pick click, pickup comb and resonance, a two-stage amp clipped at 4x the sample
+rate, a 4x12 cabinet; `drive`, `tone`, `pickup`, palm mutes); `DrumKit` (808/909-style synthesis addressed by GM
 names: `kick`, `snare`, `hat`, `oh`, `clap`, `crash`, `ride`, toms, …). Presets are
 calibrated to equal loudness, so a track's `gain` is dB relative to the others.
 
@@ -111,6 +115,6 @@ python -m pytest
 ## Status
 
 Early but working: the full path from script to audio and back to a model's ears,
-79 tests, one demo (`examples/first_groove.py`). Next: an MCP server so agents can compose,
-render and listen in a loop; a more convincing guitar model (CLAP recognises every synth
-preset but not the guitars); send buses; automation curves; a declarative text front-end.
+87 tests, one demo (`examples/first_groove.py`). Next: an MCP server so agents can compose,
+render and listen in a loop; send buses; automation curves; a declarative text front-end.
+CLAP recognises every synth preset and, in a produced context, every guitar variant.
