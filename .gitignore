@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+build/
+dist/
+
+# Render outputs never go into git: they live in the workspace (../renders/)
+*.wav
+*.mp3
+*.flac
+*.ogg
+*.mid
+*.ir.json
+*.meta.json
+out/
