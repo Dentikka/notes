@@ -19,10 +19,14 @@ __all__ = ["Effect", "Instrument", "RenderContext", "Voice"]
 
 @dataclass(frozen=True)
 class RenderContext:
+    """Render settings; `offset` is where the buffer being processed starts in the song
+    (samples), so time-varying effects stay locked to song time whatever span they get."""
+
     sr: int
     bpm: float
     a4: float = 440.0
     seed: int = 0
+    offset: int = 0
 
     def samples(self, seconds: float) -> int:
         return max(0, int(round(seconds * self.sr)))

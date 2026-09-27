@@ -94,7 +94,7 @@ class Chorus(Effect):
         x2 = _stereo(x)
         n = x2.shape[1]
         idx = np.arange(n, dtype=float)
-        t = idx / ctx.sr
+        t = (idx + ctx.offset) / ctx.sr
         out = np.empty_like(x2, dtype=float)
         for ch in range(2):
             lfo = 0.5 * (1.0 + np.sin(TAU * self.rate * t + ch * np.pi / 2.0))

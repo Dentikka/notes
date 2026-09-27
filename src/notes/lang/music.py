@@ -12,7 +12,7 @@ long forms free of rounding drift. The tree keeps its structure (``chorus * 2`` 
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from fractions import Fraction
 from typing import TYPE_CHECKING, Any
@@ -270,8 +270,14 @@ class Music:
             cycle_start += cells * st
         return place(placed, self.dur)
 
-    def arp(self, mode: str = "up", step: BeatsLike = Fraction(1, 4), octaves: int = 1) -> Music:
-        """Arpeggiate each chord ('up', 'down', 'updown', 'downup') over its own duration."""
+    def arp(self, mode: str | Sequence[int] = "up", step: BeatsLike = Fraction(1, 4), octaves: int = 1) -> Music:
+        """Arpeggiate each chord over its own duration.
+
+        `mode` is 'up', 'down', 'updown', 'downup', or a picking pattern of tone indices
+        (0 = the lowest tone, counting through `octaves` copies of the chord), cycled:
+        ``arp([0, 2, 3, 4, 3, 2], step=Fraction(1, 3), octaves=2)`` rolls up and back down
+        with the root on every other beat, like a fingerpicked ballad accompaniment.
+        """
         from notes.lang.perform import perform
 
         st = beats(step)
@@ -290,9 +296,13 @@ class Music:
                 "updown": tones + tones[-2:0:-1],
                 "downup": tones[::-1] + tones[1:-1],
             }
-            if mode not in orders:
-                raise ValueError(f"arp mode must be one of {', '.join(orders)}")
-            order, vel, end = orders[mode], max(e.vel for e in chord), max(e.end for e in chord)
+            if isinstance(mode, str):
+                if mode not in orders:
+                    raise ValueError(f"arp mode must be one of {', '.join(orders)} or a list of tone indices")
+                order = orders[mode]
+            else:
+                order = [tones[i % len(tones)] for i in mode]
+            vel, end = max(e.vel for e in chord), max(e.end for e in chord)
             t, i = start, 0
             while t < end:
                 placed.append((t, Note(order[i % len(order)], min(st, end - t), vel)))

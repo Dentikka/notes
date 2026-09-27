@@ -14,6 +14,7 @@ import argparse
 import hashlib
 import json
 import logging
+import os
 import runpy
 import shutil
 import subprocess
@@ -65,7 +66,7 @@ def _render(args: argparse.Namespace) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = args.name or script.stem
     score = song.compile()
-    result = render_score(score)
+    result = render_score(score, workers=args.workers)
     written = [result.write(out_dir / f"{stem}.wav", bits=args.bits)]
     if not args.no_ir:
         score.to_json(out_dir / f"{stem}.ir.json")
@@ -154,6 +155,8 @@ def main(argv: list[str] | None = None) -> int:
     render.add_argument("-o", "--out", help="output directory (default: next to the script)")
     render.add_argument("--name", help="base name of the outputs (default: the script's name)")
     render.add_argument("--bits", type=int, choices=(16, 24), default=16)
+    render.add_argument("--workers", type=int, default=min(8, os.cpu_count() or 1),
+                        help="processes rendering tracks in parallel (default: up to 8)")
     render.add_argument("--no-ir", action="store_true", help="skip the IR JSON")
     render.add_argument("--no-midi", action="store_true", help="skip the MIDI file")
     render.add_argument("--no-roll", action="store_true", help="skip the piano-roll PNG")
