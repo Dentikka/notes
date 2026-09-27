@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "notes"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Music as code: an algebraic Python DSL, an exact intermediate representation and a DSP renderer for agent-driven composition."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -22,3 +22,6 @@ packages = ["src/notes"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.hatch.version]
+path = "src/notes/__init__.py"
