@@ -20,7 +20,7 @@ def register_instrument(name: str) -> Callable[[_I], _I]:
     def decorator(cls: _I) -> _I:
         if name in INSTRUMENTS:
             raise ValueError(f"Instrument type {name!r} is already registered")
-        cls.kind = name
+        cls.spec_type = name
         INSTRUMENTS[name] = cls
         return cls
 
@@ -31,7 +31,7 @@ def register_effect(name: str) -> Callable[[_E], _E]:
     def decorator(cls: _E) -> _E:
         if name in EFFECTS:
             raise ValueError(f"Effect type {name!r} is already registered")
-        cls.kind = name
+        cls.spec_type = name
         EFFECTS[name] = cls
         return cls
 

@@ -44,10 +44,11 @@ class Voice:
 
 
 class _Spec:
-    kind: ClassVar[str] = ""
+    spec_type: ClassVar[str] = ""  # the registry name; distinct from any parameter name
 
     def to_spec(self) -> dict[str, Any]:
-        return {"type": self.kind, **{f.name: getattr(self, f.name) for f in fields(self)}}  # type: ignore[arg-type]
+        params = {f.name: getattr(self, f.name) for f in fields(self)}  # type: ignore[arg-type]
+        return {"type": type(self).spec_type, **params}
 
 
 @dataclass(frozen=True, kw_only=True)
