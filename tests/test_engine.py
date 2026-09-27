@@ -176,3 +176,17 @@ def test_span_rendering_matches_a_full_length_render():
         x = build_effect(f).process(x, replace(ctx, offset=0))
     assert np.allclose(x[:, offset:], stem, atol=1e-5)
     assert np.max(np.abs(x[:, :offset])) < 1e-12  # FFT convolution leaves only round-off there
+
+
+def test_every_effect_and_instrument_round_trips_through_its_spec():
+    """A parameter may share a name with registry internals (Filter.kind) without breaking specs."""
+    from notes.engine import EFFECTS, INSTRUMENTS, build_effect, build_instrument
+    from notes.engine.effects import Filter
+
+    spec = Filter(kind="highpass", cutoff=110.0).to_spec()
+    assert spec["type"] == "filter" and spec["kind"] == "highpass"
+    assert build_effect(spec) == Filter(kind="highpass", cutoff=110.0)
+    for name, cls in EFFECTS.items():
+        assert build_effect(cls().to_spec()) == cls() and cls().to_spec()["type"] == name
+    for name, cls in INSTRUMENTS.items():
+        assert build_instrument(cls().to_spec()) == cls() and cls().to_spec()["type"] == name
