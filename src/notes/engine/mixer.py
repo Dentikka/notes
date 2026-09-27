@@ -9,9 +9,11 @@ reproducible bit for bit and editing one phrase leaves the noise of the others u
 
 from __future__ import annotations
 
+import importlib
 import time
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from concurrent.futures import ProcessPoolExecutor
+from dataclasses import dataclass, replace
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
@@ -61,8 +63,15 @@ def _choke_cuts(groups: Mapping[int, str], events: Sequence[NoteEvent]) -> dict[
 
 
 def _render_voices(
-    instrument: Instrument, events: Sequence[NoteEvent], tempo: TempoMap, ctx: RenderContext, n: int, track: str
+    instrument: Instrument,
+    events: Sequence[NoteEvent],
+    tempo: TempoMap,
+    ctx: RenderContext,
+    n: int,
+    track: str,
+    offset: int = 0,
 ) -> np.ndarray:
+    """Sum of all voices into a buffer of `n` samples that starts `offset` samples into the song."""
     out = np.zeros(n)
     cuts = _choke_cuts(instrument.choke_groups(), events)
     seen: dict[tuple[Fraction, float], int] = {}
@@ -86,7 +95,7 @@ def _render_voices(
                 ramp = min(keep, ctx.samples(0.005))
                 if ramp:
                     wave[keep - ramp :] *= np.linspace(1.0, 0.0, ramp)
-        start = ctx.samples(start_s)
+        start = ctx.samples(start_s) - offset
         end = min(n, start + len(wave))
         if end > start:
             out[start:end] += wave[: end - start]
@@ -112,36 +121,91 @@ def _trim(x: np.ndarray, sr: int, keep: int) -> np.ndarray:
     return y
 
 
-def render_score(score: Score) -> RenderResult:
-    """Render a score to a stereo master plus statistics (loudness, peaks, per-track levels)."""
-    started = time.perf_counter()
+def _render_track(score: Score, name: str) -> tuple[int, np.ndarray, dict[str, Any]]:
+    """Render one track over its active span: (start sample, stereo float32 stem, raw stats).
+
+    The buffer runs from the first onset to the last gate plus the instrument's release and
+    the effects' tails, so a track that plays only in the outro costs only the outro.
+    """
+    spec = score.track(name)
     tempo = score.tempo_map()
+    ctx = RenderContext(sr=score.sample_rate, bpm=tempo.bpm_at(0), a4=score.a4, seed=score.seed)
+    events = score.events_of(name)
+    instrument = build_instrument(spec.instrument)
+    inserts = instrument.inserts()
+    effects = [build_effect(f) for f in spec.fx]
+    tail = instrument.release_time() + sum(f.tail(ctx) for f in (*inserts, *effects)) + 0.05
+    first = min((tempo.seconds(e.time) for e in events), default=0.0)
+    last = max((tempo.seconds(e.end) for e in events), default=0.0)
+    offset = ctx.samples(first)
+    n = ctx.samples(last + tail) - offset + 1
+    ctx = replace(ctx, offset=offset)
+    x = _render_voices(instrument, events, tempo, ctx, n, name, offset)[None, :]
+    for fx in inserts:
+        x = fx.process(x, ctx)
+    x = _pan(x, spec.pan) * db_to_gain(spec.gain_db)
+    for fx in effects:
+        x = fx.process(x, ctx)
+    stats = {"notes": len(events), "lufs": lufs(x, score.sample_rate), "peak_dbfs": peak_db(x)}
+    return offset, x.astype(np.float32), stats
+
+
+def _import_modules(modules: Sequence[str]) -> None:
+    """Worker initializer: import the modules that register the score's instruments and effects."""
+    for module in modules:
+        importlib.import_module(module)
+
+
+def _registering_modules(score: Score) -> list[str] | None:
+    """Modules a fresh process must import to rebuild the score's instruments and effects.
+
+    None when some class lives in a script (``__main__`` or a runpy namespace) that a worker
+    cannot import; such scores render in-process.
+    """
+    classes = {type(build_instrument(t.instrument)) for t in score.tracks}
+    classes |= {type(build_effect(f)) for t in score.tracks for f in t.fx}
+    modules = sorted({c.__module__ for c in classes})
+    return None if any(m.startswith("__") for m in modules) else modules
+
+
+def render_score(score: Score, workers: int = 1) -> RenderResult:
+    """Render a score to a stereo master plus statistics (loudness, peaks, per-track levels).
+
+    Tracks are independent until the master bus, so with `workers` > 1 they render in
+    separate processes. Stems are summed in track order either way: the output is identical
+    for any number of workers.
+    """
+    started = time.perf_counter()
     sr = score.sample_rate
-    ctx = RenderContext(sr=sr, bpm=tempo.bpm_at(0), a4=score.a4, seed=score.seed)
-    song_s = tempo.seconds(score.length)
-    stems: dict[str, np.ndarray] = {}
-    for spec in score.tracks:
-        instrument = build_instrument(spec.instrument)
-        inserts = instrument.inserts()
-        effects = [build_effect(f) for f in spec.fx]
-        tail = instrument.release_time() + sum(f.tail(ctx) for f in (*inserts, *effects)) + 0.05
-        n = ctx.samples(song_s + tail) + 1
-        x = _render_voices(instrument, score.events_of(spec.name), tempo, ctx, n, spec.name)[None, :]
-        for fx in inserts:
-            x = fx.process(x, ctx)
-        x = _pan(x, spec.pan) * db_to_gain(spec.gain_db)
-        for fx in effects:
-            x = fx.process(x, ctx)
-        stems[spec.name] = x
-    n = max((s.shape[1] for s in stems.values()), default=ctx.samples(song_s) + 1)
-    mix = np.zeros((2, n))
-    for s in stems.values():
-        mix[:, : s.shape[1]] += s
-    raw = lufs(mix, sr)
+    song_n = int(round(score.duration_seconds() * sr)) + 1
+    names = [t.name for t in score.tracks]
+    modules = _registering_modules(score) if workers > 1 and len(names) > 1 else None
+    if modules is None:
+        workers = 1
+        results = (_render_track(score, name) for name in names)
+        pool = None
+    else:
+        pool = ProcessPoolExecutor(
+            max_workers=min(workers, len(names)), initializer=_import_modules, initargs=(modules,)
+        )
+        results = pool.map(_render_track, [score] * len(names), names)
+    mix = np.zeros((2, song_n))
+    track_stats: dict[str, dict[str, Any]] = {}
+    try:
+        for name, (offset, stem, raw) in zip(names, results, strict=True):
+            end = offset + stem.shape[1]
+            if end > mix.shape[1]:
+                mix = np.pad(mix, ((0, 0), (0, end - mix.shape[1])))
+            mix[:, offset:end] += stem
+            track_stats[name] = raw
+    finally:
+        if pool is not None:
+            pool.shutdown()
+    raw_lufs = lufs(mix, sr)
     target = score.master.get("loudness")
-    gain_db = target - raw if target is not None and np.isfinite(raw) else 0.0
+    gain_db = target - raw_lufs if target is not None and np.isfinite(raw_lufs) else 0.0
     mix, reduction = limit(mix * db_to_gain(gain_db), sr, float(score.master.get("ceiling", -1.0)))
-    mix = _trim(mix, sr, ctx.samples(song_s))
+    mix = _trim(mix, sr, song_n - 1)
     stats = {
         "duration_s": round(mix.shape[1] / sr, 3),
         "lufs": round(lufs(mix, sr), 2),
@@ -150,13 +214,14 @@ def render_score(score: Score) -> RenderResult:
         "limiter_db": round(reduction, 2),
         "tracks": {
             name: {
-                "notes": len(score.events_of(name)),
-                "lufs_in_mix": round(lufs(s, sr) + gain_db, 2),
-                "peak_dbfs_in_mix": round(peak_db(s) + gain_db, 2),
+                "notes": t["notes"],
+                "lufs_in_mix": round(t["lufs"] + gain_db, 2),
+                "peak_dbfs_in_mix": round(t["peak_dbfs"] + gain_db, 2),
             }
-            for name, s in stems.items()
+            for name, t in track_stats.items()
         },
         "render_s": round(time.perf_counter() - started, 2),
+        "workers": workers,
         "seed": score.seed,
     }
     return RenderResult(mix, sr, stats)

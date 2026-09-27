@@ -136,3 +136,43 @@ def test_midi_export(tmp_path):
     assert data[:4] == b"MThd"
     assert int.from_bytes(data[10:12], "big") == 1 + len(score.tracks)
     assert data.count(b"MTrk") == 1 + len(score.tracks)
+
+
+def test_parallel_render_is_bit_identical_to_sequential():
+    song = tiny_song()
+    one = song.render(workers=1)
+    many = song.render(workers=2)
+    assert many.stats["workers"] == 2
+    assert np.array_equal(one.audio, many.audio)
+
+
+def test_a_late_track_renders_only_its_span():
+    from notes.engine.mixer import _render_track
+
+    late = Track("late", EPiano())(chords("Am").shift(8))
+    score = Song(Track("d", DrumKit())(steps(kick="x...") * 4) | late).compile()
+    offset, stem, _ = _render_track(score, "late")
+    assert offset == int(round(score.tempo_map().seconds(8) * score.sample_rate))
+    assert stem.shape[0] == 2 and stem.dtype == np.float32
+
+
+def test_span_rendering_matches_a_full_length_render():
+    """Cutting a track to its active span must not change it (effects keep song time)."""
+    from dataclasses import replace
+
+    from notes.engine import build_effect, build_instrument
+    from notes.engine.mixer import _pan, _render_track, _render_voices
+
+    late = Track("late", EPiano(), fx=[Chorus(mix=0.5), Reverb(mix=0.3)])(chords("Am F").shift(8))
+    score = Song(Track("d", DrumKit())(steps(kick="x...") * 8) | late).compile()
+    offset, stem, _ = _render_track(score, "late")
+
+    spec, tempo = score.track("late"), score.tempo_map()
+    ctx = RenderContext(sr=score.sample_rate, bpm=tempo.bpm_at(0))
+    n = offset + stem.shape[1]
+    x = _render_voices(build_instrument(spec.instrument), score.events_of("late"), tempo, ctx, n, "late")[None, :]
+    x = _pan(x, spec.pan)
+    for f in spec.fx:
+        x = build_effect(f).process(x, replace(ctx, offset=0))
+    assert np.allclose(x[:, offset:], stem, atol=1e-5)
+    assert np.max(np.abs(x[:, :offset])) < 1e-12  # FFT convolution leaves only round-off there

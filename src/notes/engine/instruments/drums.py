@@ -104,7 +104,7 @@ class DrumKit(Instrument):
     level: float = 0.9
 
     def release_time(self) -> float:
-        return 0.0
+        return 5.5  # sounds ignore the gate; the longest, a crash, rings about five seconds
 
     def choke_groups(self) -> Mapping[int, str]:
         return {42: "hat", 44: "hat", 46: "hat"}

@@ -156,11 +156,15 @@ class Song:
             master={"loudness": self.loudness, "ceiling": self.ceiling},
         )
 
-    def render(self, path: str | Path | None = None, *, bits: int = 16) -> RenderResult:
-        """Render to audio; also writes a WAV file when `path` is given."""
+    def render(self, path: str | Path | None = None, *, bits: int = 16, workers: int = 1) -> RenderResult:
+        """Render to audio; also writes a WAV file when `path` is given.
+
+        `workers` > 1 renders tracks in parallel processes (same output); scripts that use it
+        must guard their top level with ``if __name__ == "__main__":``.
+        """
         from notes.engine.mixer import render_score
 
-        result = render_score(self.compile())
+        result = render_score(self.compile(), workers=workers)
         if path is not None:
             result.write(path, bits=bits)
         return result
