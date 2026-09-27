@@ -119,3 +119,12 @@ def test_humanize_is_seeded():
     first, second = perform(m.humanize(seed=1)).events, perform(m.humanize(seed=1)).events
     assert first == second
     assert first != perform(m.humanize(seed=2)).events
+
+
+def test_arp_follows_a_picking_pattern():
+    from fractions import Fraction
+
+    picked = chord("C", H, octave=4).arp([0, 2, 3, 4, 3, 2], step=Fraction(1, 3), octaves=2)
+    assert pitches(picked) == [60, 67, 72, 76, 72, 67]
+    with pytest.raises(ValueError, match="tone indices"):
+        chord("C", H).arp("sideways")
