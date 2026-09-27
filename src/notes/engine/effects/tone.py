@@ -5,12 +5,27 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from scipy.signal import resample_poly
 
 from notes.engine.base import Effect, RenderContext
 from notes.engine.dsp import db_to_gain, dc_block, filt
 from notes.engine.registry import register_effect
 
-__all__ = ["EQ", "Cabinet", "Drive", "Filter", "GuitarAmp"]
+__all__ = ["EQ", "Cabinet", "Drive", "Filter", "GuitarAmp", "saturate"]
+
+_OVERSAMPLE = 4
+
+
+def saturate(x: np.ndarray, gain: float, bias: float = 0.0, oversample: int = _OVERSAMPLE) -> np.ndarray:
+    """tanh(gain * x + bias) - tanh(bias) evaluated at `oversample` times the sample rate.
+
+    The polyphase resampler's low-pass removes the new harmonics above the original Nyquist
+    before decimation, so they do not alias back into the audible band.
+    """
+    if oversample <= 1:
+        return np.tanh(gain * x + bias) - np.tanh(bias)
+    up = resample_poly(x, oversample, 1, axis=-1)
+    return resample_poly(np.tanh(gain * up + bias) - np.tanh(bias), 1, oversample, axis=-1)[..., : x.shape[-1]]
 
 
 @register_effect("filter")
@@ -62,18 +77,22 @@ class Drive(Effect):
 
     def process(self, x: np.ndarray, ctx: RenderContext) -> np.ndarray:
         k = 1.0 + 24.0 * self.amount
-        wet = filt(np.tanh(k * x) / np.tanh(k), "lowpass", self.tone, ctx.sr)
+        wet = filt(saturate(x, k) / np.tanh(k), "lowpass", self.tone, ctx.sr)
         return (1.0 - self.mix) * x + self.mix * wet
 
 
 @register_effect("guitar_amp")
 @dataclass(frozen=True, kw_only=True)
 class GuitarAmp(Effect):
-    """Guitar amplifier: tightening high-pass, mid push, asymmetric soft clipping, tone tilt.
+    """Two-stage guitar amplifier, clipped at 4x the sample rate.
 
-    `drive` sets the pre-gain from +3 dB (clean) to +42 dB (heavy); the bias makes clipping
-    asymmetric, which adds the even harmonics of a tube stage. The output is compensated by
-    up to -12 dB as drive rises, so turning up the gain changes the character, not the level.
+    Preamp: a tightening high-pass and a mid push feed asymmetric tanh clipping (the bias
+    adds a tube stage's even harmonics) with a gain from +3 dB (clean) to +36 dB (heavy).
+    Tone stack: a mid scoop that deepens with gain and a tilt set by `tone`. Power amp: a
+    gentle symmetric squash, then presence. Clipping runs oversampled, so harmonics above
+    Nyquist are filtered out instead of folding back as the inharmonic fizz of digital
+    distortion. The output is trimmed from -4.6 dB (clean) to about -13 dB (heavy), so that
+    gain changes the character, not the loudness.
     """
 
     drive: float = 0.5
@@ -84,26 +103,33 @@ class GuitarAmp(Effect):
         sr, d = ctx.sr, float(np.clip(self.drive, 0.0, 1.0))
         y = filt(x, "highpass", 60.0 + 90.0 * d, sr, 0.7)
         y = filt(y, "peak", 800.0, sr, 0.8, 5.0 * d)
-        bias = 0.15 * d
-        y = np.tanh(db_to_gain(3.0 + 39.0 * d) * y + bias) - np.tanh(bias)
-        y = dc_block(y, sr)
+        y = dc_block(saturate(y, db_to_gain(3.0 + 33.0 * d), 0.15 * d), sr)
         tilt = (self.tone - 0.5) * 12.0
+        y = filt(y, "peak", 650.0, sr, 0.7, -4.0 * d)
         y = filt(y, "lowshelf", 250.0, sr, 0.7071, -0.5 * tilt)
         y = filt(y, "highshelf", 2500.0, sr, 0.7071, tilt)
-        return self.level * db_to_gain(-12.0 * (1.0 - np.exp(-d / 0.25))) * y
+        power = 1.0 + 1.5 * d
+        y = saturate(y, power) / np.tanh(power)
+        y = filt(y, "highshelf", 3500.0, sr, 0.7071, 2.0 * self.tone)
+        return self.level * db_to_gain(-4.6 - 8.7 * (1.0 - np.exp(-d / 0.28))) * y
 
 
 @register_effect("cabinet")
 @dataclass(frozen=True, kw_only=True)
 class Cabinet(Effect):
-    """Closed-back speaker cabinet: band-limits and colours the amp (24 dB/oct top roll-off)."""
+    """Closed-back 4x12 cabinet: low resonance, low-mid dip, presence and cone-breakup peaks,
+    then a steep (36 dB/oct) roll-off whose corner `tone` moves from 4.2 to 6 kHz."""
 
     tone: float = 0.5
 
     def process(self, x: np.ndarray, ctx: RenderContext) -> np.ndarray:
         sr = ctx.sr
-        top = 3200.0 + 2600.0 * self.tone
-        y = filt(x, "highpass", 80.0, sr, 0.8)
-        y = filt(y, "peak", 110.0, sr, 1.0, 2.0)
-        y = filt(y, "peak", 2300.0, sr, 1.2, 3.0)
-        return filt(filt(y, "lowpass", top, sr, 0.9), "lowpass", 1.1 * top, sr, 0.6)
+        top = 4200.0 + 1800.0 * self.tone
+        y = filt(x, "highpass", 75.0, sr, 0.7)
+        y = filt(y, "peak", 110.0, sr, 1.2, 3.0)
+        y = filt(y, "peak", 500.0, sr, 1.0, -3.0)
+        y = filt(y, "peak", 2400.0, sr, 1.5, 4.0)
+        y = filt(y, "peak", 3800.0, sr, 2.0, 3.0)
+        for q in (0.54, 1.31):
+            y = filt(y, "lowpass", top, sr, q)
+        return filt(y, "lowpass", 1.4 * top, sr, 0.7)
