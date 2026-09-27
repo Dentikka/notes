@@ -187,7 +187,7 @@ def dc_block(x: np.ndarray, sr: int, freq: float = 15.0) -> np.ndarray:
 
 
 def lowpass_sweep(
-    x: np.ndarray, cutoff: np.ndarray, sr: int, q: float = 0.7071, poles: int = 4, block: int = 64
+    x: np.ndarray, cutoff: np.ndarray, sr: int, q: float = 0.7071, poles: int = 4, block: int = 128
 ) -> np.ndarray:
     """Resonant lowpass whose cutoff (Hz, per sample) is updated every `block` samples.
 
