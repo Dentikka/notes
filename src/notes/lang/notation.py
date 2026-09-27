@@ -2,6 +2,7 @@
 
     melody("A4 C5 E5 _ D5 . C5@2")          # '_' holds, '.' rests, '@n' lasts n steps
     melody("[A3,C4,E4]@4 E4> D4!2")         # '[..]' stacks a chord, '>' accents, '!n' repeats
+    melody("D5^2~@4 E5~@2 G5^")             # '^n' bends n semitones (2 if bare), '~' vibrato
     steps(kick="x...x...", hat="x.x.x.x.")  # a cell per step: x hit, X accent, o soft
     chords("Am F C G")                      # chord symbols, one per 4/4 bar by default
     euclid(3, 8)                            # 'x..x..x.' — a maximally even rhythm
@@ -24,6 +25,9 @@ __all__ = ["chord", "chords", "euclid", "hit", "melody", "parse_hits", "steps"]
 _HIT_VELOCITY = {"x": 0.8, "X": 1.0, "o": 0.5}
 _RESTS = frozenset(".-~")
 _HOLD = "_"
+_BEND_RE = re.compile(r"\^(-?\d+(?:\.\d+)?)?$")
+_VIBRATO_DEPTH = 0.25
+_BEND_SEMITONES = 2.0
 
 
 def parse_hits(pattern: str) -> tuple[list[tuple[int, int, float]], int]:
@@ -61,6 +65,18 @@ def _split_token(token: str) -> tuple[str, Fraction, bool, int]:
     return body, length, accent, repeat
 
 
+def _articulation(body: str) -> tuple[str, dict[str, float]]:
+    """'D5^2~' -> ('D5', {'vibrato': 0.25, 'bend': 2.0}): strip the vibrato and bend marks."""
+    params: dict[str, float] = {}
+    if body.endswith("~"):
+        params["vibrato"] = _VIBRATO_DEPTH
+        body = body[:-1]
+    if m := _BEND_RE.search(body):
+        params["bend"] = float(m.group(1)) if m.group(1) else _BEND_SEMITONES
+        body = body[: m.start()]
+    return body, params
+
+
 def melody(
     text: str,
     step: BeatsLike = E,
@@ -72,11 +88,12 @@ def melody(
     """A line of notes, one token per `step` (an eighth note by default).
 
     Tokens: a pitch ('A4', 'F#3'; 'Bb' falls in `octave`), a chord '[C4,E4,G4]', '.' rest,
-    '_' hold. Suffixes, in this order: '>' accent, '@n' length in steps, '!n' repeat.
+    '_' hold. Suffixes, in this order: '^n' bend by n semitones ('^' alone: 2), '~' vibrato,
+    '>' accent, '@n' length in steps, '!n' repeat — e.g. 'D5^2~>@4'.
     """
     st = beats(step)
     to_pitch = resolve or (lambda tok: parse_pitch(tok, octave))
-    items: list[list] = []  # [pitches or None, length in steps, velocity]
+    items: list[list] = []  # [pitches or None, length in steps, velocity, params]
     for token in text.split():
         if token == "|":
             continue
@@ -87,13 +104,17 @@ def melody(
                     raise ValueError(f"'_' must follow a note or rest in {text!r}")
                 items[-1][1] += length
             elif body in _RESTS:
-                items.append([None, length, 0.0])
+                items.append([None, length, 0.0, {}])
             else:
-                names = body[1:-1].split(",") if body.startswith("[") and body.endswith("]") else [body]
-                items.append([[to_pitch(n.strip()) for n in names], length, min(1.0, vel * 1.25) if accent else vel])
+                body_, params = _articulation(body)
+                names = body_[1:-1].split(",") if body_.startswith("[") and body_.endswith("]") else [body_]
+                pitches = [to_pitch(n.strip()) for n in names]
+                items.append([pitches, length, min(1.0, vel * 1.25) if accent else vel, params])
     if not items:
         raise ValueError("melody() got no notes")
-    return cat(*(Rest(n * st) if ps is None else stack(*(Note(p, n * st, v) for p in ps)) for ps, n, v in items))
+    return cat(
+        Rest(n * st) if ps is None else stack(*(Note(p, n * st, v, kw) for p in ps)) for ps, n, v, kw in items
+    )
 
 
 def _lane_target(name: str) -> tuple[float, tuple[tuple[str, str], ...]]:

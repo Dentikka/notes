@@ -229,6 +229,18 @@ class Music:
         """Attach per-note parameters for the instrument (e.g. palm_mute=True); inner values win."""
         return Modify(self, Params(_freeze_params(params)))
 
+    def vibrato(self, depth: float = 0.25, rate: float = 5.5, delay: float = 0.2) -> Music:
+        """Pitch vibrato of `depth` semitones (peak) at `rate` Hz, fading in after `delay` seconds."""
+        return self.param(vibrato=float(depth), vibrato_rate=float(rate), vibrato_delay=float(delay))
+
+    def bend(self, semitones: float = 2.0, time: float = 0.15, start: float = 0.0) -> Music:
+        """Bend every note by `semitones`, starting `start` s after its onset and taking `time` s."""
+        return self.param(bend=float(semitones), bend_time=float(time), bend_start=float(start))
+
+    def slide(self, semitones: float = -2.0, time: float = 0.08) -> Music:
+        """Glide into every note from `semitones` away over `time` seconds."""
+        return self.param(slide=float(semitones), slide_time=float(time))
+
     # --- re-articulation --------------------------------------------------------------
     def rhythm(self, pattern: str, step: BeatsLike = Fraction(1, 2)) -> Music:
         """Re-strike whatever sounds at each hit of a step pattern — held chords become a riff.

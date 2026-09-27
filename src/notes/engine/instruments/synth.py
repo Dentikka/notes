@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from notes.engine.articulation import pitch_curve
 from notes.engine.base import Instrument, RenderContext, Voice
 from notes.engine.dsp import adsr, filt, lowpass_sweep, osc, vel_gain
 from notes.engine.registry import register_instrument
@@ -50,14 +51,16 @@ class Synth(Instrument):
         n = gate + ctx.samples(self.release)
         if n == 0:
             return np.zeros(0)
+        curve = pitch_curve(v.params, n, sr)
+        freq = v.freq if curve is None else v.freq * 2.0 ** (curve / 12.0)
         spread = np.linspace(-0.5, 0.5, self.unison) * self.detune if self.unison > 1 else np.zeros(1)
         x = np.zeros(n)
         for cents in spread:
             start = float(rng.random()) if self.unison > 1 else 0.0
-            x += osc(self.wave, v.freq * 2.0 ** (cents / 1200.0), n, sr, start)
+            x += osc(self.wave, freq * 2.0 ** (cents / 1200.0), n, sr, start)
         x /= np.sqrt(len(spread))
         if self.sub:
-            x += self.sub * osc("square", v.freq / 2.0, n, sr)
+            x += self.sub * osc("square", freq / 2.0, n, sr)
         if self.noise:
             x += self.noise * rng.uniform(-1.0, 1.0, n)
         base = self.cutoff * (v.freq / 261.63) ** self.keytrack
