@@ -15,4 +15,5 @@ dist/
 *.mid
 *.ir.json
 *.meta.json
+*.listen.json
 out/
