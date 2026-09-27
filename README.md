@@ -82,22 +82,35 @@ calibrated to equal loudness, so a track's `gain` is dB relative to the others.
 ```bash
 notes render examples/first_groove.py -o out/      # WAV + IR JSON + MIDI + piano roll + meta.json
 notes render song.py --spectrogram --bits 24
+notes render song.py --listen --prompt "energetic synthwave"   # ... and hear it (see Ears)
+notes listen out/first_groove.wav --reference other.wav         # tags per section, similarity
 notes info song.py                                 # sections, tracks, ranges — no rendering
 ```
 
 `meta.json` records loudness, peaks and per-track levels in the mix, the script's hash
 and the engine's git revision; the script itself is copied next to its outputs.
 
+## Ears
+
+An agent cannot listen, so `notes.ears` gives it a model's hearing. CLAP
+([`laion/clap-htsat-unfused`](https://huggingface.co/laion/clap-htsat-unfused)) embeds the
+render in 10-second windows — cut deterministically, averaged per section of the score —
+and ranks genre, instrument, mood and production labels (prompt-ensembled) and any
+free-text prompts; `--reference` compares two renders. Scores are zero-shot and relative:
+use them to compare versions and sections, not as absolute judgments. (`larger_clap_music`
+is not used: in its Hugging Face conversion every prompt embeds to nearly the same vector.)
+
 ## Install
 
 ```bash
 pip install -e ".[dev]"      # numpy + scipy; matplotlib for pictures, pytest for tests
+pip install -e ".[ears]"     # torch + transformers for listening
 python -m pytest
 ```
 
 ## Status
 
-Early but working: the full path from script to audio, 74 tests, one demo
-(`examples/first_groove.py`). Next: an MCP server so agents can compose, render and
-inspect in a loop; send buses; automation curves; a declarative text front-end; SoundFont
-and sample playback.
+Early but working: the full path from script to audio and back to a model's ears,
+79 tests, one demo (`examples/first_groove.py`). Next: an MCP server so agents can compose,
+render and listen in a loop; a more convincing guitar model (CLAP recognises every synth
+preset but not the guitars); send buses; automation curves; a declarative text front-end.
