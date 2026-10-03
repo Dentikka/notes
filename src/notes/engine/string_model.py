@@ -52,7 +52,9 @@ def _loss_filter(f0: float, sr: int, t60: float, t60_high: float) -> tuple[float
     ratio = per_period(min(t60_high, t60)) / per_period(t60)
     a = 0.0
     if wh > w0 and ratio < mag(0.0, wh) / mag(0.0, w0) - 1e-12:
-        a = brentq(lambda x: mag(x, wh) / mag(x, w0) - ratio, -0.9999, 0.0)
+        # A one-pole can only dip so far between f0 and 4 kHz; past that, take its steepest.
+        steepest = mag(-0.9999, wh) / mag(-0.9999, w0)
+        a = -0.9999 if ratio <= steepest else brentq(lambda x: mag(x, wh) / mag(x, w0) - ratio, -0.9999, 0.0)
     return per_period(t60) / mag(a, w0), a
 
 
