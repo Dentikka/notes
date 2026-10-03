@@ -3,6 +3,7 @@
     notes render song.py -o ../renders/0927-first-groove/ [--listen --prompt "..."]
     notes listen song.wav [--prompt "..."] [--reference other.wav]
     notes info song.py
+    notes export song.wav [--mp3] [--mp4] [--subtitle "..."]
 
 A script defines ``song = Song(...)``. When the output directory differs from the script's,
 the script is copied there, so every render folder holds the exact source it came from.
@@ -144,6 +145,31 @@ def _info(args: argparse.Namespace) -> int:
     return 0
 
 
+def _export(args: argparse.Namespace) -> int:
+    from notes.export.media import cover, to_mp3, to_mp4
+
+    wav = Path(args.audio).resolve()
+    ir = wav.with_suffix(".ir.json")
+    score = Score.from_json(ir.read_text(encoding="utf-8")) if ir.exists() else None
+    title = args.title or (score.title if score else None) or wav.stem
+    tags = {"title": title, "artist": args.artist, "album": args.album or "", "comment": "rendered by notes"}
+    tags = {k: v for k, v in tags.items() if v}
+    audio, sr = read_wav(wav)
+    seconds = audio.shape[-1] / sr
+    do_mp3, do_mp4 = args.mp3 or not args.mp4, args.mp4 or not args.mp3
+    if do_mp3:
+        print(f"wrote {to_mp3(wav, wav.with_suffix('.mp3'), bitrate=args.bitrate, tags=tags)}")
+    if do_mp4:
+        image = Path(args.image) if args.image else None
+        if image is None:
+            if score is None:
+                raise SystemExit(f"{wav.name}: no {ir.name} to draw a cover from; pass --image")
+            image = cover(score, wav.with_name(wav.stem + ".cover.png"), seconds=seconds, subtitle=args.subtitle)
+            print(f"wrote {image}")
+        print(f"wrote {to_mp4(wav, image, wav.with_suffix('.mp4'), seconds, tags=tags)}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(errors="replace")
@@ -175,6 +201,17 @@ def main(argv: list[str] | None = None) -> int:
     info = sub.add_parser("info", help="describe a script's song without rendering")
     info.add_argument("script")
     info.set_defaults(func=_info)
+    export = sub.add_parser("export", help="MP3 and MP4 (still cover + audio) of a render (needs notes[media])")
+    export.add_argument("audio", help="a rendered WAV; title and cover come from the IR JSON and piano roll beside it")
+    export.add_argument("--mp3", action="store_true", help="only the MP3 (default: both)")
+    export.add_argument("--mp4", action="store_true", help="only the MP4 (default: both)")
+    export.add_argument("--bitrate", default="320k", help="MP3 bitrate (default 320k)")
+    export.add_argument("--title", help="title tag and cover title (default: the song's)")
+    export.add_argument("--subtitle", help="a line under the title on the cover, e.g. the style")
+    export.add_argument("--artist", default="notes", help="artist tag")
+    export.add_argument("--album", help="album tag")
+    export.add_argument("--image", help="use this picture for the video instead of drawing a cover")
+    export.set_defaults(func=_export)
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
     return int(args.func(args))
