@@ -14,7 +14,10 @@ removes one reason a synthetic string sounds synthetic:
   f_h = h f0 sqrt(1 + B h^2) (fitted near 1.5 kHz), so the waveform keeps changing shape
   instead of repeating;
 - **polarisations** — a second, slightly detuned and longer-ringing string, mixed in
-  quietly: the slow beating of the partials that every real string has.
+  quietly: the slow beating of the partials that every real string has. Given
+  `prompt_t60`, the picked polarisation dies fast (the "prompt sound") while the other
+  carries the long "aftersound": the two-stage decay of a real pluck instead of an
+  organ-like steady tone.
 """
 
 from __future__ import annotations
@@ -136,21 +139,29 @@ def steel_string(
     stiffness: float = 4e-5,
     detune: float = 0.7,
     second: float = 0.3,
+    prompt_t60: float | None = None,
 ) -> np.ndarray:
     """n samples of a string plucked at fraction `pick` of its length from the bridge.
 
     `t60` / `t60_high`: decay (s) of the fundamental and of partials near 4 kHz;
     `hardness` 0..1 rounds the pluck from a soft thumb to a hard pick; `noise` is the share
     of noise in the pluck; `stiffness` is the inharmonicity B; the second polarisation is
-    `detune` cents sharp, rings 1.4x longer and is mixed at `second`.
+    `detune` cents sharp, rings 1.4x longer and is mixed at `second`. With `prompt_t60`
+    the first polarisation decays in `prompt_t60` instead (its treble no slower) and the
+    second one in `t60`.
     """
     excitation = np.zeros(n)
     out = np.zeros(n)
-    strings = ((1.0, freq, t60), (second, freq * 2.0 ** (detune / 1200.0), 1.4 * t60))
-    for weight, f0, decay in strings:
+    detuned = freq * 2.0 ** (detune / 1200.0)
+    if prompt_t60 is None:
+        strings = ((1.0, freq, t60, t60_high), (second, detuned, 1.4 * t60, t60_high))
+    else:
+        prompt = min(prompt_t60, t60)
+        strings = ((1.0, freq, prompt, min(t60_high, prompt)), (second, detuned, t60, t60_high))
+    for weight, f0, decay, decay_high in strings:
         if weight <= 0:
             continue
-        length, b, a = _loop(f0, sr, decay, t60_high, stiffness)
+        length, b, a = _loop(f0, sr, decay, decay_high, stiffness)
         burst = _pluck(length, sr, pick, hardness, noise, rng)
         excitation[:] = 0.0
         excitation[: min(length, n)] = burst[: min(length, n)]
