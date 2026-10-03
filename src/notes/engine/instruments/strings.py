@@ -10,7 +10,7 @@ import numpy as np
 from notes.engine.articulation import pitch_curve, variable_rate_read
 from notes.engine.base import Effect, Instrument, RenderContext, Voice
 from notes.engine.dsp import adsr, delay, filt, karplus_strong, vel_gain
-from notes.engine.effects.tone import Cabinet, Drive, Filter, GuitarAmp
+from notes.engine.effects.tone import EQ, Cabinet, Drive, Filter, GuitarAmp
 from notes.engine.registry import register_instrument
 from notes.engine.string_model import steel_string
 
@@ -228,20 +228,25 @@ class BassGuitar(Instrument):
     `sustain` is the T60 (s) of the fundamental at A3 (longer on the low strings),
     `treble_decay` the T60 near 4 kHz; `brightness` is the hardness of the attack (fingers
     ~0.4, pick ~0.8); `tone` sets the low-pass of the DI from dark (0) to growly (1); `drive`
-    a little preamp saturation. Per-note ``palm_mute=True`` gives a muted thump,
-    ``legato=True`` a note without the pitch kick of a pluck.
+    a little preamp saturation. `clank` is the level of the wound string slapping the frets
+    on a pluck; `cabinet` sends it through a bass amp's speaker (low lift, a growl around
+    800 Hz, nothing above ~4 kHz) instead of straight into the desk. Per-note
+    ``palm_mute=True`` gives a muted thump, ``legato=True`` a note without the pitch kick
+    and the clank of a pluck.
     """
 
     program: int | None = 33
     sustain: float = 5.0
-    treble_decay: float = 0.6
+    treble_decay: float = 0.1
     brightness: float = 0.4
     pick_position: float = 0.22
     stiffness: float = 5e-5
     polarization: float = 0.2
-    pitch_attack: float = 4.0
+    pitch_attack: float = 15.0
     tone: float = 0.5
     drive: float = 0.1
+    clank: float = 0.3
+    cabinet: bool = False
     release: float = 0.08
     level: float = 0.19
 
@@ -252,6 +257,9 @@ class BassGuitar(Instrument):
         chain: tuple[Effect, ...] = (Filter(kind="lowpass", cutoff=900.0 + 3000.0 * self.tone, q=0.8),)
         if self.drive > 0:
             chain += (Drive(amount=self.drive, tone=2500.0 + 3000.0 * self.tone),)
+        if self.cabinet:
+            chain += (Filter(kind="highpass", cutoff=38.0, q=0.7), EQ(low=2.0, low_freq=100.0, mid=3.0, mid_freq=800.0,
+                                                                   mid_q=0.8), Filter(kind="lowpass", cutoff=4000.0, q=0.7))
         return chain
 
     def voice(self, v: Voice, ctx: RenderContext, rng: np.random.Generator) -> np.ndarray:
@@ -275,4 +283,8 @@ class BassGuitar(Instrument):
             glide = self.pitch_attack / 100.0 * v.vel * np.exp(-np.arange(n) / (_TENSION_TAU * sr))
             curve = glide if curve is None else curve + glide
         y = string(n) if curve is None else variable_rate_read(string, curve)
+        if self.clank and not legato:
+            k = min(n, int(0.03 * sr))
+            burst = filt(rng.uniform(-1.0, 1.0, k), "bandpass", 3000.0, sr, 0.9) * np.exp(-np.arange(k) / (0.005 * sr))
+            y[:k] += self.clank * v.vel * burst / max(float(np.max(np.abs(burst))), 1e-9) * float(np.max(np.abs(y)))
         return self.level * vel_gain(v.vel) * y * _gate(gate, n, sr, self.release)
