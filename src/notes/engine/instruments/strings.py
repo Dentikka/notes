@@ -41,11 +41,17 @@ def _gate(gate: int, n: int, sr: int, release: float) -> np.ndarray:
 
 
 def _pick_click(n: int, sr: int, rng: np.random.Generator) -> np.ndarray:
-    """The pick leaving the string: a few milliseconds of band-limited noise."""
-    k = min(n, int(0.012 * sr))
+    """The pick striking and slipping off the string: ~5 ms of broadband noise, 0.7–9 kHz,
+    with a 0.3 ms rise and a 1.5 ms decay, peak-normalised (so `pick_noise` 1 matches the
+    string's own peak)."""
+    k = min(n, int(0.006 * sr))
     click = np.zeros(n)
+    if k < 2:
+        return click
     t = np.arange(k) / sr
-    click[:k] = filt(rng.uniform(-1.0, 1.0, k), "bandpass", 3500.0, sr, 0.8) * np.exp(-t / 0.0025)
+    burst = filt(filt(rng.uniform(-1.0, 1.0, k), "highpass", 700.0, sr, 0.7), "lowpass", 9000.0, sr, 0.7)
+    burst *= (1.0 - np.exp(-t / 0.0003)) * np.exp(-t / 0.0015)
+    click[:k] = burst / max(float(np.max(np.abs(burst))), 1e-9)
     return click
 
 
@@ -155,7 +161,7 @@ class ElectricGuitar(Instrument):
     polarization: float = 0.3
     prompt_decay: float = 0.0
     pitch_attack: float = 8.0
-    pitch_drift: float = 2.0
+    pitch_drift: float = 0.0
     fretting: bool = False
     pick_noise: float = 0.2
     mute_decay: float = 0.5
