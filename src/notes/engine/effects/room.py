@@ -82,7 +82,8 @@ def room_ir(sr: int, size: float, decay: float, damp: float) -> np.ndarray:
         early = np.zeros(n)
         e = _early(sr, dims, src, mic + np.array([0.0, side * _MIC_SPACING / 2.0, 0.0]), absorb, damp)
         early[: min(n, e.size)] = e[: min(n, e.size)]
-        tail = wash(t, sr, rng, low=60.0, high=0.45 * sr, tau_low=decay / 6.9, tau_high=decay * (1.0 - 0.8 * damp) / 6.9)
+        tau_high = decay * (1.0 - 0.8 * damp) / 6.9  # T60 = 6.9 tau
+        tail = wash(t, sr, rng, low=60.0, high=0.45 * sr, tau_low=decay / 6.9, tau_high=tau_high)
         tail *= 1.0 - np.exp(-t / max(onset, 1e-3))
         early /= max(float(np.sqrt(np.sum(early**2))), 1e-12)
         tail /= max(float(np.sqrt(np.sum(tail**2))), 1e-12)
