@@ -10,11 +10,11 @@ import numpy as np
 from notes.engine.articulation import pitch_curve, variable_rate_read
 from notes.engine.base import Effect, Instrument, RenderContext, Voice
 from notes.engine.dsp import adsr, delay, filt, karplus_strong, vel_gain
-from notes.engine.effects.tone import Cabinet, Filter, GuitarAmp
+from notes.engine.effects.tone import Cabinet, Drive, Filter, GuitarAmp
 from notes.engine.registry import register_instrument
 from notes.engine.string_model import steel_string
 
-__all__ = ["ElectricGuitar", "Pluck"]
+__all__ = ["BassGuitar", "ElectricGuitar", "Pluck"]
 
 #: Where each pickup senses the string (fraction of its length from the bridge).
 _PICKUP_POSITION = {"bridge": 0.09, "middle": 0.17, "neck": 0.27}
@@ -156,4 +156,61 @@ class ElectricGuitar(Instrument):
             curve = glide if curve is None else curve + glide
         y = string(n) if curve is None else variable_rate_read(string, curve)
         y = y + self.pick_noise * _pick_click(n, sr, rng)
+        return self.level * vel_gain(v.vel) * y * _gate(gate, n, sr, self.release)
+
+
+@register_instrument("bass_guitar")
+@dataclass(frozen=True, kw_only=True)
+class BassGuitar(Instrument):
+    """Electric bass: steel-string waveguide (`notes.engine.string_model`), played with the
+    fingers, through a pickup straight into the desk (no cabinet).
+
+    `sustain` is the T60 (s) of the fundamental at A3 (longer on the low strings),
+    `treble_decay` the T60 near 4 kHz; `brightness` is the hardness of the attack (fingers
+    ~0.4, pick ~0.8); `tone` sets the low-pass of the DI from dark (0) to growly (1); `drive`
+    a little preamp saturation. Per-note ``palm_mute=True`` gives a muted thump.
+    """
+
+    program: int | None = 33
+    sustain: float = 5.0
+    treble_decay: float = 0.6
+    brightness: float = 0.4
+    pick_position: float = 0.22
+    stiffness: float = 5e-5
+    polarization: float = 0.2
+    pitch_attack: float = 4.0
+    tone: float = 0.5
+    drive: float = 0.1
+    release: float = 0.08
+    level: float = 0.19
+
+    def release_time(self) -> float:
+        return self.release
+
+    def inserts(self) -> tuple[Effect, ...]:
+        chain: tuple[Effect, ...] = (Filter(kind="lowpass", cutoff=900.0 + 3000.0 * self.tone, q=0.8),)
+        if self.drive > 0:
+            chain += (Drive(amount=self.drive, tone=2500.0 + 3000.0 * self.tone),)
+        return chain
+
+    def voice(self, v: Voice, ctx: RenderContext, rng: np.random.Generator) -> np.ndarray:
+        sr = ctx.sr
+        muted = bool(v.params.get("palm_mute", False))
+        t60 = 0.4 if muted else _t60(self.sustain, v.freq)
+        position = 0.2
+        lag = int(round(position * sr / v.freq))
+
+        def string(m: int) -> np.ndarray:
+            y = steel_string(v.freq, m, sr, rng, t60=t60, t60_high=min(self.treble_decay, t60),
+                             pick=self.pick_position, hardness=self.brightness * (0.7 if muted else 1.0),
+                             noise=0.05, stiffness=self.stiffness, second=self.polarization)
+            return (y - delay(y, lag)) / (2.0 * np.sin(np.pi * position)) if lag >= 1 else y
+
+        gate = ctx.samples(v.dur)
+        n = gate + ctx.samples(self.release)
+        curve = pitch_curve(v.params, n, sr, vibrato_shape="push", rng=rng)
+        if self.pitch_attack:
+            glide = self.pitch_attack / 100.0 * v.vel * np.exp(-np.arange(n) / (_TENSION_TAU * sr))
+            curve = glide if curve is None else curve + glide
+        y = string(n) if curve is None else variable_rate_read(string, curve)
         return self.level * vel_gain(v.vel) * y * _gate(gate, n, sr, self.release)

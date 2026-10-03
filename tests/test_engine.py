@@ -4,6 +4,7 @@ from _audio import estimate_f0
 
 from notes import (
     Bass,
+    BassGuitar,
     Bell,
     DrumKit,
     ElectricGuitar,
@@ -68,7 +69,8 @@ def test_limiter_respects_ceiling():
 
 @pytest.mark.parametrize(
     "instrument",
-    [Bass(), Pad(), Lead(), EPiano(), Bell(), Pluck(), ElectricGuitar(drive=0.8), ElectricGuitar(drive=0.0)],
+    [Bass(), Pad(), Lead(), EPiano(), Bell(), Pluck(), ElectricGuitar(drive=0.8), ElectricGuitar(drive=0.0),
+     BassGuitar()],
 )
 def test_every_instrument_renders_a_finite_voice(instrument):
     ctx = RenderContext(sr=SR, bpm=120)
