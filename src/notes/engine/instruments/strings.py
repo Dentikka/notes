@@ -258,8 +258,11 @@ class BassGuitar(Instrument):
         if self.drive > 0:
             chain += (Drive(amount=self.drive, tone=2500.0 + 3000.0 * self.tone),)
         if self.cabinet:
-            chain += (Filter(kind="highpass", cutoff=38.0, q=0.7), EQ(low=2.0, low_freq=100.0, mid=3.0, mid_freq=800.0,
-                                                                   mid_q=0.8), Filter(kind="lowpass", cutoff=4000.0, q=0.7))
+            chain += (
+                Filter(kind="highpass", cutoff=38.0, q=0.7),
+                EQ(low=2.0, low_freq=100.0, mid=3.0, mid_freq=800.0, mid_q=0.8),
+                Filter(kind="lowpass", cutoff=4000.0, q=0.7),
+            )
         return chain
 
     def voice(self, v: Voice, ctx: RenderContext, rng: np.random.Generator) -> np.ndarray:
