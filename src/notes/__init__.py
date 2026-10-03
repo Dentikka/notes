@@ -29,6 +29,7 @@ from notes.engine import (
     Pluck,
     RenderResult,
     Reverb,
+    RockKit,
     Synth,
     render_score,
 )
@@ -90,6 +91,7 @@ __all__ = [
     "Note",
     "Pad",
     "Pluck",
+    "RockKit",
     "Q",
     "RenderResult",
     "Rest",

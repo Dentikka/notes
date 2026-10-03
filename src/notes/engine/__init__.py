@@ -14,6 +14,7 @@ from notes.engine.instruments import (
     Lead,
     Pad,
     Pluck,
+    RockKit,
     Synth,
 )
 from notes.engine.mixer import RenderResult, render_score
@@ -49,6 +50,7 @@ __all__ = [
     "Lead",
     "Pad",
     "Pluck",
+    "RockKit",
     "Reverb",
     "RenderContext",
     "RenderResult",
