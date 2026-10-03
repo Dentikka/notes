@@ -30,6 +30,7 @@ from notes.engine import (
     RenderResult,
     Reverb,
     RockKit,
+    Room,
     Synth,
     render_score,
 )
@@ -96,6 +97,7 @@ __all__ = [
     "RenderResult",
     "Rest",
     "Reverb",
+    "Room",
     "S",
     "Score",
     "Song",

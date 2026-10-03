@@ -55,3 +55,17 @@ def test_wash_stays_in_band_and_decays_faster_at_the_top():
     early, late = y[: SR // 4], y[SR // 2 : 3 * SR // 4]
     assert band(early, 50, 300) < 1e-3 * band(early, 2000, 12000)
     assert band(late, 8000, 11000) / band(early, 8000, 11000) < band(late, 2000, 3000) / band(early, 2000, 3000)
+
+
+def test_room_adds_early_reflections_and_a_short_tail():
+    from notes import Room
+    from notes.engine.effects.room import room_ir
+
+    ir = room_ir(SR, 0.5, 0.6, 0.5)
+    assert ir.shape[0] == 2 and not np.allclose(ir[0], ir[1])  # two mics, decorrelated
+    energy = np.cumsum(ir[0] ** 2) / np.sum(ir[0] ** 2)
+    assert energy[int(0.005 * SR)] < 0.1 < energy[int(0.03 * SR)] and energy[int(0.3 * SR)] > 0.99
+    x = np.zeros(SR // 2)
+    x[0] = 1.0
+    y = Room(mix=0.3).process(x, RenderContext(sr=SR, bpm=120))
+    assert y.shape == (2, x.size) and y[0, 0] == 1.0  # the dry signal passes untouched
