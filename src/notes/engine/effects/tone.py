@@ -5,10 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.signal import resample_poly
+from scipy.signal import oaconvolve, resample_poly
 
 from notes.engine.base import Effect, RenderContext
 from notes.engine.dsp import db_to_gain, dc_block, filt
+from notes.engine.effects.speaker import speaker_ir
 from notes.engine.registry import register_effect
 
 __all__ = ["EQ", "Cabinet", "Drive", "Filter", "GuitarAmp", "saturate"]
@@ -117,12 +118,30 @@ class GuitarAmp(Effect):
 @register_effect("cabinet")
 @dataclass(frozen=True, kw_only=True)
 class Cabinet(Effect):
-    """Closed-back 4x12 cabinet: low resonance, low-mid dip, presence and cone-breakup peaks,
-    then a steep (36 dB/oct) roll-off whose corner `tone` moves from 4.2 to 6 kHz."""
+    """Closed-back 4x12 cabinet, miked.
+
+    `model='greenback'` convolves with a designed impulse response (`notes.engine.effects.speaker`):
+    jagged cone-breakup response, presence hump, a cliff above 5 kHz and, scaled by `room`,
+    the floor and room reflections the mic hears. `model='filters'` is the earlier smooth
+    biquad cabinet: low resonance, low-mid dip, presence and breakup peaks, then a steep
+    roll-off. `tone` brightens either: presence and the corner of the roll-off.
+    """
 
     tone: float = 0.5
+    model: str = "greenback"
+    room: float = 0.2
+
+    def __post_init__(self) -> None:
+        if self.model not in ("greenback", "filters"):
+            raise ValueError(f"cabinet model must be 'greenback' or 'filters', got {self.model!r}")
+
+    def tail(self, ctx: RenderContext) -> float:
+        return 0.05 if self.model == "greenback" else 0.0
 
     def process(self, x: np.ndarray, ctx: RenderContext) -> np.ndarray:
+        if self.model == "greenback":
+            ir = speaker_ir(ctx.sr, round(float(self.tone), 4), round(float(self.room), 4))
+            return oaconvolve(x, ir.reshape((1,) * (x.ndim - 1) + (-1,)), axes=-1)[..., : x.shape[-1]]
         sr = ctx.sr
         top = 4200.0 + 1800.0 * self.tone
         y = filt(x, "highpass", 75.0, sr, 0.7)

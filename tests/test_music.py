@@ -128,3 +128,11 @@ def test_arp_follows_a_picking_pattern():
     assert pitches(picked) == [60, 67, 72, 76, 72, 67]
     with pytest.raises(ValueError, match="tone indices"):
         chord("C", H).arp("sideways")
+
+
+def test_ringing_arp_sustains_until_the_string_is_picked_again():
+    from fractions import Fraction
+
+    picked = perform(chord("C", H, octave=4).arp([0, 1, 2, 1], step=Fraction(1, 2), ring=True)).events
+    assert [(e.pitch, e.time, e.dur) for e in picked] == [(60, 0, 2), (64, Fraction(1, 2), 1), (67, 1, 1),
+                                                          (64, Fraction(3, 2), Fraction(1, 2))]

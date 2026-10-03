@@ -76,3 +76,11 @@ def test_oversampled_clipping_folds_far_less_back():
     naive = inharmonic_ratio(saturate(x, 30.0, 0.1, oversample=1), 5000.0, SR)
     oversampled = inharmonic_ratio(saturate(x, 30.0, 0.1, oversample=4), 5000.0, SR)
     assert oversampled < naive / 100  # at least 20 dB less aliasing
+
+
+def test_pushed_vibrato_only_raises_the_pitch():
+    rng = np.random.default_rng(1)
+    vib = pitch_curve({"vibrato": 0.3, "vibrato_delay": 0.1}, SR, SR, vibrato_shape="push", rng=rng)
+    assert vib.min() >= 0.0 and vib.max() == pytest.approx(0.6, abs=0.01)
+    with pytest.raises(ValueError, match="vibrato_shape"):
+        pitch_curve({"vibrato": 0.3}, SR, SR, vibrato_shape="square")

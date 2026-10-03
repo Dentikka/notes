@@ -7,6 +7,11 @@ notation ``~`` and ``^n``):
     bend     semitones the bend reaches         bend_start s (0.0)      bend_time s (0.15)
     slide    semitones away the note glides in from at its onset        slide_time s (0.08)
 
+`vibrato_shape` chooses how the pitch moves: 'sine' swings evenly around the note (voice,
+violin, synth); 'push' only ever raises it, the way a guitarist's finger pushes the string
+across the fret and lets it back, with the same peak-to-peak swing and a rate that wanders
+by a few per cent (given an `rng`).
+
 Instruments with oscillators turn the curve into a frequency track. Strings are rendered
 at a fixed pitch and read back at a varying rate, which moves the string's harmonics with
 the pitch — what bending a real string does — while the amp and cabinet after it stay put.
@@ -22,6 +27,7 @@ import numpy as np
 __all__ = ["pitch_curve", "variable_rate_read"]
 
 _VIBRATO_FADE_S = 0.3
+_RATE_WANDER = 0.08
 
 
 def _smoothstep(x: np.ndarray) -> np.ndarray:
@@ -29,7 +35,24 @@ def _smoothstep(x: np.ndarray) -> np.ndarray:
     return x * x * (3.0 - 2.0 * x)
 
 
-def pitch_curve(params: Mapping[str, Any], n: int, sr: int) -> np.ndarray | None:
+def _vibrato_phase(rate: float, t: np.ndarray, sr: int, rng: np.random.Generator | None) -> np.ndarray:
+    """Phase (radians) of a vibrato starting at t = 0, its rate wandering slowly given an rng."""
+    inst = np.full(t.shape, rate)
+    if rng is not None:
+        slow = sum(np.sin(2.0 * np.pi * f * t + rng.uniform(0.0, 2.0 * np.pi)) for f in (0.37, 0.83))
+        inst *= 1.0 + 0.5 * _RATE_WANDER * slow
+    inst[t <= 0.0] = 0.0
+    return 2.0 * np.pi * np.cumsum(inst) / sr
+
+
+def pitch_curve(
+    params: Mapping[str, Any],
+    n: int,
+    sr: int,
+    *,
+    vibrato_shape: str = "sine",
+    rng: np.random.Generator | None = None,
+) -> np.ndarray | None:
     """Pitch offset in semitones for each of the `n` samples of a voice; None for a plain note."""
     vibrato = float(params.get("vibrato", 0.0))
     bend = float(params.get("bend", 0.0))
@@ -46,7 +69,13 @@ def pitch_curve(params: Mapping[str, Any], n: int, sr: int) -> np.ndarray | None
     if vibrato:
         delay, rate = float(params.get("vibrato_delay", 0.2)), float(params.get("vibrato_rate", 5.5))
         fade = np.clip((t - delay) / _VIBRATO_FADE_S, 0.0, 1.0)
-        curve += vibrato * fade * np.sin(2.0 * np.pi * rate * (t - delay))
+        if vibrato_shape == "push":
+            phase = _vibrato_phase(rate, t - delay, sr, rng)
+            curve += vibrato * fade * (1.0 - np.cos(phase))
+        elif vibrato_shape == "sine":
+            curve += vibrato * fade * np.sin(2.0 * np.pi * rate * (t - delay))
+        else:
+            raise ValueError(f"vibrato_shape must be 'sine' or 'push', got {vibrato_shape!r}")
     return curve
 
 

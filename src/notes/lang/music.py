@@ -270,13 +270,21 @@ class Music:
             cycle_start += cells * st
         return place(placed, self.dur)
 
-    def arp(self, mode: str | Sequence[int] = "up", step: BeatsLike = Fraction(1, 4), octaves: int = 1) -> Music:
+    def arp(
+        self,
+        mode: str | Sequence[int] = "up",
+        step: BeatsLike = Fraction(1, 4),
+        octaves: int = 1,
+        ring: bool = False,
+    ) -> Music:
         """Arpeggiate each chord over its own duration.
 
         `mode` is 'up', 'down', 'updown', 'downup', or a picking pattern of tone indices
         (0 = the lowest tone, counting through `octaves` copies of the chord), cycled:
         ``arp([0, 2, 3, 4, 3, 2], step=Fraction(1, 3), octaves=2)`` rolls up and back down
         with the root on every other beat, like a fingerpicked ballad accompaniment.
+        ``ring=True`` lets each note sound on until the chord changes or its own string is
+        picked again, as a guitarist's arpeggio rings, instead of lasting one `step`.
         """
         from notes.lang.perform import perform
 
@@ -303,10 +311,16 @@ class Music:
             else:
                 order = [tones[i % len(tones)] for i in mode]
             vel, end = max(e.vel for e in chord), max(e.end for e in chord)
+            onsets = []
             t, i = start, 0
             while t < end:
-                placed.append((t, Note(order[i % len(order)], min(st, end - t), vel)))
+                onsets.append((t, order[i % len(order)]))
                 t, i = t + st, i + 1
+            for k, (t, pitch) in enumerate(onsets):
+                stop = min(t + st, end)
+                if ring:
+                    stop = next((u for u, q in onsets[k + 1 :] if q == pitch), end)
+                placed.append((t, Note(pitch, stop - t, vel)))
         return place(placed, self.dur)
 
 
