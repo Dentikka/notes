@@ -73,9 +73,10 @@ def membrane(
     n_modes: int = 10,
     damping: float = 1.6,
 ) -> np.ndarray:
-    """A struck drum head; a hard hit starts `glide` sharp, settling over `glide_tau` s. `strike` 0 = dead centre (only the round modes), 1 = near the
+    """A struck drum head. `strike` 0 = dead centre (only the round modes), 1 = near the
     edge (the off-centre modes too); `damping` > 1 makes higher modes decay faster
-    (tau_k = tau / ratio^damping)."""
+    (tau_k = tau / ratio^damping); a hard hit starts `glide` sharp, settling over
+    `glide_tau` seconds."""
     ratios = np.array(MEMBRANE_RATIOS[:n_modes]) * (1.0 + rng.normal(0.0, 0.01, n_modes))
     axisymmetric = np.isin(np.arange(n_modes), (0, 3, 8))  # the (0, n) modes
     amps = np.where(axisymmetric, 1.0, strike) / ratios
