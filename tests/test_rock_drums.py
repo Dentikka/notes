@@ -38,7 +38,7 @@ def test_membrane_rings_at_its_bessel_modes():
     from scipy.signal import find_peaks
 
     spec = np.abs(np.fft.rfft(y))
-    found, _ = find_peaks(spec, distance=20)
+    found, _ = find_peaks(spec, distance=8)
     peaks = sorted(found[np.argsort(spec[found])[-4:]])  # 1 Hz bins
     assert np.allclose(peaks, 100.0 * np.array(MEMBRANE_RATIOS[:4]), rtol=0.04)
 
