@@ -82,3 +82,10 @@ def test_key_melody_uses_degrees():
 
 def test_hit():
     assert events(hit("crash", 4))[0].params["sound"] == "crash"
+
+
+def test_legato_and_slide_prefixes():
+    evs = perform(melody("/B5~@4 A5 &G5 &/E5", step=E)).events
+    assert [e.pitch for e in evs] == [83, 81, 79, 76]
+    assert [e.params for e in evs] == [{"slide": -2.0, "vibrato": 0.25}, {}, {"legato": True},
+                                       {"legato": True, "slide": -2.0}]

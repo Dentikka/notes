@@ -51,3 +51,34 @@ def test_cabinet_models():
         assert y.shape == x.shape and np.isfinite(y).all()
     with pytest.raises(ValueError, match="cabinet model"):
         Cabinet(model="v30")
+
+
+def test_fretted_notes_move_the_pickup_along_the_string():
+    from notes.engine.instruments.strings import _along, fret_scale
+
+    assert fret_scale(64) == 1.0 and fret_scale(76) == pytest.approx(0.5)  # open high E, 12th fret
+    assert _along(0.27, fret_scale(76)) == pytest.approx(0.46)  # the neck pickup near mid-string
+
+
+def test_prompt_sound_gives_a_two_stage_decay():
+    def level(y, t):
+        return 20 * np.log10(np.sqrt(np.mean(y[int(t * SR) : int(t * SR) + SR // 20] ** 2)))
+
+    rng = np.random.default_rng(0)
+    one = steel_string(330.0, 2 * SR, SR, rng, t60=6.0)
+    two = steel_string(330.0, 2 * SR, SR, np.random.default_rng(0), t60=6.0, second=0.4, prompt_t60=0.9)
+    early = lambda y: level(y, 0.02) - level(y, 0.5)  # noqa: E731
+    late = lambda y: level(y, 1.0) - level(y, 1.5)  # noqa: E731
+    assert early(two) > early(one) + 3 and late(two) == pytest.approx(late(one), abs=1.5)
+
+
+def test_legato_note_has_no_pick_and_starts_softer():
+    from notes import ElectricGuitar
+    from notes.engine import Voice
+
+    ctx = RenderContext(sr=SR, bpm=120)
+    g = ElectricGuitar(drive=0.0)
+    picked = g.voice(Voice(330.0, 64.0, 0.5, 0.8, {}), ctx, np.random.default_rng(0))
+    legato = g.voice(Voice(330.0, 64.0, 0.5, 0.8, {"legato": True}), ctx, np.random.default_rng(0))
+    first = slice(0, int(0.01 * SR))
+    assert np.sqrt(np.mean(legato[first] ** 2)) < 0.7 * np.sqrt(np.mean(picked[first] ** 2))

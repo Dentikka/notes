@@ -28,6 +28,7 @@ _HOLD = "_"
 _BEND_RE = re.compile(r"\^(-?\d+(?:\.\d+)?)?$")
 _VIBRATO_DEPTH = 0.25
 _BEND_SEMITONES = 2.0
+_SLIDE_SEMITONES = -2.0
 
 
 def parse_hits(pattern: str) -> tuple[list[tuple[int, int, float]], int]:
@@ -66,8 +67,15 @@ def _split_token(token: str) -> tuple[str, Fraction, bool, int]:
 
 
 def _articulation(body: str) -> tuple[str, dict[str, float]]:
-    """'D5^2~' -> ('D5', {'vibrato': 0.25, 'bend': 2.0}): strip the vibrato and bend marks."""
+    """'D5^2~' -> ('D5', {'vibrato': 0.25, 'bend': 2.0}): strip the articulation marks —
+    prefixes '&' (legato) and '/' (slide in from a tone below), suffixes '^n' and '~'."""
     params: dict[str, float] = {}
+    while body[:1] in ("&", "/") and len(body) > 1:
+        if body[0] == "&":
+            params["legato"] = True
+        else:
+            params["slide"] = _SLIDE_SEMITONES
+        body = body[1:]
     if body.endswith("~"):
         params["vibrato"] = _VIBRATO_DEPTH
         body = body[:-1]
@@ -88,8 +96,9 @@ def melody(
     """A line of notes, one token per `step` (an eighth note by default).
 
     Tokens: a pitch ('A4', 'F#3'; 'Bb' falls in `octave`), a chord '[C4,E4,G4]', '.' rest,
-    '_' hold. Suffixes, in this order: '^n' bend by n semitones ('^' alone: 2), '~' vibrato,
-    '>' accent, '@n' length in steps, '!n' repeat — e.g. 'D5^2~>@4'.
+    '_' hold. Prefixes: '&' legato (hammer-on, pull-off: no new pick stroke), '/' slide in
+    from a whole tone below. Suffixes, in this order: '^n' bend by n semitones ('^' alone:
+    2), '~' vibrato, '>' accent, '@n' length in steps, '!n' repeat — e.g. '/D5^2~>@4', '&C5'.
     """
     st = beats(step)
     to_pitch = resolve or (lambda tok: parse_pitch(tok, octave))
