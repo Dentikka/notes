@@ -14,7 +14,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from notes.engine.base import Instrument, RenderContext, Voice
-from notes.engine.drum_physics import impact, membrane, metal, wash
+from notes.engine.drum_physics import impact, membrane, metal, resonate, wash
 from notes.engine.dsp import fade, filt, vel_gain
 from notes.engine.instruments.drums import _clap, _cowbell
 from notes.engine.registry import register_instrument
@@ -24,7 +24,8 @@ __all__ = ["RockKit"]
 
 #: Fundamentals (Hz) of the kit's heads at tune 0.
 _KICK_HZ, _SNARE_HZ = 55.0, 195.0
-_TOM_HZ = {"tom_lo": 82.0, "tom_mid": 118.0, "tom_hi": 156.0}
+#: Toms: (fundamental Hz, ring time constant s) — the floor tom rings longest.
+_TOM = {"tom_lo": (82.0, 0.22), "tom_mid": (118.0, 0.16), "tom_hi": (156.0, 0.13)}
 
 
 def _time(seconds: float, sr: int) -> np.ndarray:
@@ -61,10 +62,18 @@ def _snare(sr: int, rng: np.random.Generator, vel: float, k: float, d: float, wi
     return y
 
 
-def _tom(sr: int, rng: np.random.Generator, vel: float, f0: float, d: float) -> np.ndarray:
-    t = _time(1.4 * d, sr)
-    head = membrane(t, f0, 0.32 * d, rng, strike=0.35, glide=0.18 * vel, n_modes=9, damping=1.4)
-    return head + 0.5 * impact(t.size, sr, rng, hardness=0.6 + 0.3 * vel, length=0.0008)
+def _tom(sr: int, rng: np.random.Generator, vel: float, f0: float, d: float, ring: float) -> np.ndarray:
+    """Batter head (pitch sagging over ~80 ms after a hard hit), the resonant head a hair
+    higher and quieter (a slow beat; a few per cent apart they would wobble like a
+    tremolo), the skin's dense upper modes as a quick burst of noise, the stick, the shell."""
+    t = _time(4.0 * ring * d + 0.2, sr)
+    batter = membrane(t, f0, ring * d, rng, strike=0.35, glide=0.22 * vel, glide_tau=0.08, n_modes=7, damping=1.6)
+    reso = membrane(t, 1.008 * f0, 1.1 * ring * d, rng, strike=0.1, glide=0.05 * vel, glide_tau=0.08, n_modes=3)
+    skin = wash(t, sr, rng, low=0.9 * f0, high=7000.0, tau_low=0.06, tau_high=0.012, tilt=-1.5)
+    skin /= max(float(np.max(np.abs(skin))), 1e-9)
+    stick = impact(t.size, sr, rng, hardness=0.6 + 0.3 * vel, length=0.0008)
+    shell = resonate(stick, sr, ((3.1 * f0, 0.04, 1.0), (5.3 * f0, 0.025, 0.6)))
+    return batter + 0.2 * reso + (0.35 + 0.25 * vel) * skin + 0.5 * stick + 0.4 * shell
 
 
 def _norm(x: np.ndarray) -> np.ndarray:
@@ -97,19 +106,27 @@ def _crash(sr: int, rng: np.random.Generator, vel: float, k: float, d: float) ->
 
 
 def _ride(sr: int, rng: np.random.Generator, vel: float, k: float, d: float) -> np.ndarray:
+    """The stick's 'ping' — a short bright flash of dense metal noise around 2–8 kHz, with
+    a little tone from the cymbal's mid modes — over a dark wash that rings for seconds."""
     t = _time(3.0 * d, sr)
-    body = wash(t, sr, rng, low=500.0 * k, high=15000.0, tau_low=2.2 * d, tau_high=1.0 * d, tilt=0.5, bloom=0.03)
-    # The stick's 'ping': a bright cluster of modes that dies quickly, over a quieter wash.
-    ping = metal(t, rng, n_modes=40, low=2500.0 * k, high=6500.0 * k, tau_low=0.25, tau_high=0.12)
+    ping = wash(t, sr, rng, low=2800.0 * k, high=7500.0, tau_low=0.12, tau_high=0.05, tilt=-1.0)
+    tone = metal(t, rng, n_modes=30, low=600.0 * k, high=2400.0 * k, tau_low=0.9 * d, tau_high=0.4 * d, tilt=-2.0)
+    body = wash(t, sr, rng, low=350.0 * k, high=9000.0, tau_low=1.8 * d, tau_high=0.6 * d, tilt=-3.0, bloom=0.05)
     stick = impact(t.size, sr, rng, hardness=1.0, length=0.0004)
-    return fade(0.35 * _norm(body) + (0.8 + 0.4 * vel) * _norm(ping) + 1.5 * stick, sr, fade_out=0.3)
+    y = (0.9 + 0.3 * vel) * _norm(ping) + 0.2 * _norm(tone) + 0.1 * _norm(body) + 1.2 * stick
+    return fade(y, sr, fade_out=0.3)
 
 
-def _cross_stick(sr: int, rng: np.random.Generator) -> np.ndarray:
-    """Stick laid across the snare, struck on the rim: a woody knock."""
-    t = _time(0.12, sr)
-    knock = metal(t, rng, n_modes=8, low=700.0, high=2600.0, tau_low=0.03, tau_high=0.015)
-    return knock + 0.4 * membrane(t, _SNARE_HZ, 0.04, rng, n_modes=4) + 0.4 * impact(t.size, sr, rng, hardness=0.8)
+def _cross_stick(sr: int, rng: np.random.Generator, vel: float) -> np.ndarray:
+    """Stick laid across the snare, its butt struck on the rim: a hollow woody knock — the
+    stick and rim click excite the shell and head, which ring for a few tens of ms."""
+    t = _time(0.15, sr)
+    click = impact(t.size, sr, rng, hardness=0.75 + 0.2 * vel, length=0.0006)
+    click[: int(0.004 * sr)] += 0.3 * rng.uniform(-1.0, 1.0, int(0.004 * sr))
+    knock = resonate(click, sr, ((_SNARE_HZ * 2.3, 0.035, 1.0), (520.0, 0.03, 0.8), (1150.0, 0.018, 0.6),
+                                 (2300.0, 0.01, 0.35)))
+    wires = filt(rng.uniform(-1.0, 1.0, t.size), "highpass", 2500.0, sr, 0.7) * np.exp(-t / 0.03)
+    return knock + 0.25 * click + 0.08 * wires
 
 
 @register_instrument("rock_drums")
@@ -144,7 +161,7 @@ class RockKit(Instrument):
         sounds = {
             "kick": (lambda r: _kick(sr, r, vel, k, d, self.click), 0.95),
             "snare": (lambda r: _snare(sr, r, vel, k, d, self.wires, self.rimshot), 0.8),
-            "rim": (lambda r: _cross_stick(sr, r), 0.45),
+            "rim": (lambda r: _cross_stick(sr, r, vel), 0.45),
             "hat": (lambda r: _hat(sr, r, vel, k, 0.035 * d, 0.25), 0.28),
             "pedal_hat": (lambda r: _pedal_hat(sr, r), 0.22),
             "open_hat": (lambda r: _hat(sr, r, vel, k, 0.45 * d, 2.0 * d), 0.3),
@@ -153,8 +170,8 @@ class RockKit(Instrument):
             "clap": (lambda r: _clap(sr, r, d), 0.6),
             "cowbell": (lambda r: _cowbell(sr, r, k, d), 0.45),
         }
-        for name, f0 in _TOM_HZ.items():
-            sounds[name] = (lambda r, f=f0: _tom(sr, r, vel, f * k, d), 0.75)
+        for name, (f0, ring) in _TOM.items():
+            sounds[name] = (lambda r, f=f0, g=ring: _tom(sr, r, vel, f * k, d, g), 0.75)
         return sounds
 
     def voice(self, v: Voice, ctx: RenderContext, rng: np.random.Generator) -> np.ndarray:

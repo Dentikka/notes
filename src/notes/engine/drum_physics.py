@@ -24,7 +24,7 @@ from scipy.signal import istft, stft
 
 from notes.engine.dsp import filt
 
-__all__ = ["MEMBRANE_RATIOS", "impact", "membrane", "metal", "modes", "wash"]
+__all__ = ["MEMBRANE_RATIOS", "impact", "membrane", "metal", "modes", "resonate", "wash"]
 
 #: Mode frequencies of an ideal circular membrane relative to the fundamental (j_mn / j_01).
 MEMBRANE_RATIOS = (1.000, 1.594, 2.136, 2.296, 2.653, 2.918, 3.156, 3.501, 3.600, 3.652, 4.060, 4.154)
@@ -69,17 +69,18 @@ def membrane(
     *,
     strike: float = 0.3,
     glide: float = 0.0,
+    glide_tau: float = 0.03,
     n_modes: int = 10,
     damping: float = 1.6,
 ) -> np.ndarray:
-    """A struck drum head. `strike` 0 = dead centre (only the round modes), 1 = near the
+    """A struck drum head; a hard hit starts `glide` sharp, settling over `glide_tau` s. `strike` 0 = dead centre (only the round modes), 1 = near the
     edge (the off-centre modes too); `damping` > 1 makes higher modes decay faster
     (tau_k = tau / ratio^damping)."""
     ratios = np.array(MEMBRANE_RATIOS[:n_modes]) * (1.0 + rng.normal(0.0, 0.01, n_modes))
     axisymmetric = np.isin(np.arange(n_modes), (0, 3, 8))  # the (0, n) modes
     amps = np.where(axisymmetric, 1.0, strike) / ratios
     amps *= 1.0 + rng.normal(0.0, 0.15, n_modes)
-    return modes(t, f0 * ratios, amps, tau / ratios**damping, rng, glide=glide)
+    return modes(t, f0 * ratios, amps, tau / ratios**damping, rng, glide=glide, glide_tau=glide_tau)
 
 
 def metal(
@@ -134,6 +135,16 @@ def wash(
         env = env * (1.0 - np.exp(-times / np.maximum(bloom * octave**1.5, 1e-4)))
     _, y = istft(z * env, fs=sr, nperseg=nper, noverlap=3 * nper // 4)
     return y[: t.size]
+
+
+def resonate(x: np.ndarray, sr: int, bodies: tuple[tuple[float, float, float], ...]) -> np.ndarray:
+    """Pass an excitation through resonant bodies, each (Hz, ring time constant s, gain):
+    a band-pass whose bandwidth gives that ring, Q = pi f tau. Excited by a noisy click,
+    this rings with the irregular start of wood and shells, not the pure onset of a sine."""
+    y = np.zeros_like(x)
+    for f, tau, gain in bodies:
+        y += gain * filt(x, "bandpass", f, sr, max(np.pi * f * tau, 0.5))
+    return y
 
 
 def impact(n: int, sr: int, rng: np.random.Generator, *, hardness: float, length: float = 0.001) -> np.ndarray:
