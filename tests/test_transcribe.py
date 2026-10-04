@@ -4,7 +4,6 @@ import pytest
 from notes import BassGuitar, E, RockKit, Song, Track, hit, melody, stack
 from notes.ears.compare import _onset_strength, _onsets
 from notes.ears.transcribe import best_chord, chroma, drum_hits, drum_profile, notes_from_track, pitch_track
-from notes.engine.audio import write_wav  # noqa: F401  (handy when debugging)
 
 SR = 44100
 
