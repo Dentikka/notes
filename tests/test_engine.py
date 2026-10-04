@@ -205,3 +205,24 @@ def test_dry_zero_leaves_an_effect_return():
         assert np.max(np.abs(wet[:, 100])) < 1e-6  # nothing at the click itself
         assert np.max(np.abs(wet)) > 1e-3  # but the tail / the modulated copies are there
         assert np.allclose(full - wet, direct * click)
+
+
+def test_noise_has_its_colour_and_band():
+    from notes import Noise
+    from notes.engine.instruments.noise import coloured_noise
+
+    def octave_levels(y):
+        f, p = np.fft.rfftfreq(len(y), 1 / SR), np.abs(np.fft.rfft(y)) ** 2
+        return [10 * np.log10(p[(f >= lo) & (f < 2 * lo)].sum()) for lo in (500, 1000, 2000, 4000)]
+
+    rng = np.random.default_rng(0)
+    pink = octave_levels(coloured_noise(SR, SR, "pink", rng))
+    white = octave_levels(coloured_noise(SR, SR, "white", rng))
+    assert np.ptp(pink) < 1.0  # equal energy per octave
+    assert white[3] - white[0] == pytest.approx(9.0, abs=1.0)  # +3 dB per octave
+    ctx = RenderContext(sr=SR, bpm=60)
+    hiss = Noise(low=2000.0, level=0.1).voice(Voice(440.0, 69.0, 1.0, 1.0, {}), ctx, rng)
+    assert len(hiss) == SR + ctx.samples(0.1)
+    assert octave_levels(hiss[: SR])[0] < octave_levels(hiss[: SR])[3] - 10.0  # band-limited from 2 kHz
+    with pytest.raises(ValueError):
+        Noise(color="blue")
