@@ -138,9 +138,12 @@ class ElectricGuitar(Instrument):
     "aftersound" that remains once the picked vibration, ringing `prompt_decay` x the
     sustain, has died: the two-stage decay of a pluck), `pitch_attack` how many cents sharp
     a full-velocity pluck starts (tension falling back over ~0.1 s), `pitch_drift` the
-    cents a fretting finger lets the pitch wander. With `fretting`, each note is placed on
-    a string and fret (`fret_scale`) and the pick and pickup positions are taken along the
-    shortened string; otherwise they are the same fractions for every note.
+    cents a fretting finger lets the pitch wander, `velocity_brightness` how much softer
+    picking also rounds the pluck (0: velocity sets only the level; 1: a note at velocity
+    0.3 is picked with 0.3 x the hardness, as a gently picked string sounds darker). With
+    `fretting`, each note is placed on a string and fret (`fret_scale`) and the pick and
+    pickup positions are taken along the shortened string; otherwise they are the same
+    fractions for every note.
 
     Per-note parameters: ``palm_mute=True`` for chugs that ring `mute_decay` seconds (T60)
     with the pluck softened to `mute_brightness`; ``legato=True`` for a note sounded by the
@@ -164,6 +167,7 @@ class ElectricGuitar(Instrument):
     pitch_drift: float = 0.0
     fretting: bool = False
     pick_noise: float = 0.2
+    velocity_brightness: float = 0.0
     mute_decay: float = 0.5
     mute_brightness: float = 0.75
     release: float = 0.06
@@ -191,6 +195,7 @@ class ElectricGuitar(Instrument):
         t60 = self.mute_decay if muted else _t60(self.sustain, v.freq)
         t60_high = min(self.treble_decay, 0.3 * t60) if muted else self.treble_decay
         hardness = self.brightness * (self.mute_brightness if muted else 1.0) * (_LEGATO_SOFTNESS if legato else 1.0)
+        hardness *= 1.0 - self.velocity_brightness * (1.0 - v.vel)
         scale = fret_scale(v.pitch) if self.fretting else 1.0
         position = _along(_PICKUP_POSITION[self.pickup], scale)
         pick = _along(self.pick_position, scale)

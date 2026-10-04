@@ -192,3 +192,16 @@ def test_every_effect_and_instrument_round_trips_through_its_spec():
         assert build_effect(cls().to_spec()) == cls() and cls().to_spec()["type"] == name
     for name, cls in INSTRUMENTS.items():
         assert build_instrument(cls().to_spec()) == cls() and cls().to_spec()["type"] == name
+
+
+def test_dry_zero_leaves_an_effect_return():
+    ctx = RenderContext(sr=SR, bpm=120)
+    click = np.zeros((2, SR // 2))
+    click[:, 100] = 1.0
+    # what the dry knob removes: the click itself (the chorus scales its sum by 1 + mix/2)
+    for effect, direct in ((Reverb(mix=0.5), 1.0), (Chorus(mix=0.5), 1.0 / 1.25)):
+        full = effect.process(click, ctx)
+        wet = type(effect)(**{**effect.__dict__, "dry": 0.0}).process(click, ctx)
+        assert np.max(np.abs(wet[:, 100])) < 1e-6  # nothing at the click itself
+        assert np.max(np.abs(wet)) > 1e-3  # but the tail / the modulated copies are there
+        assert np.allclose(full - wet, direct * click)
