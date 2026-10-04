@@ -83,12 +83,17 @@ class Delay(Effect):
 @register_effect("chorus")
 @dataclass(frozen=True, kw_only=True)
 class Chorus(Effect):
-    """Modulated short delay per channel with LFOs in quadrature — widens and thickens."""
+    """Modulated short delay per channel with LFOs in quadrature — widens and thickens.
+
+    `dry` scales the direct signal: 0 leaves only the modulated copies, an effect return to
+    pan apart from the dry guitar (as 80s mixes put the chorus on the other side).
+    """
 
     rate: float = 0.8
     depth: float = 0.003
     base_delay: float = 0.012
     mix: float = 0.5
+    dry: float = 1.0
 
     def process(self, x: np.ndarray, ctx: RenderContext) -> np.ndarray:
         x2 = _stereo(x)
@@ -100,7 +105,7 @@ class Chorus(Effect):
             lfo = 0.5 * (1.0 + np.sin(TAU * self.rate * t + ch * np.pi / 2.0))
             lag = (self.base_delay + self.depth * lfo) * ctx.sr
             wet = np.interp(idx - lag, idx, x2[ch], left=0.0)
-            out[ch] = (x2[ch] + self.mix * wet) / (1.0 + 0.5 * self.mix)
+            out[ch] = (self.dry * x2[ch] + self.mix * wet) / (1.0 + 0.5 * self.mix)
         return out
 
     def tail(self, ctx: RenderContext) -> float:
@@ -113,8 +118,9 @@ class Reverb(Effect):
     """Freeverb (Schroeder–Moorer): eight damped combs into four allpasses per channel.
 
     `size` sets the comb feedback (0.70–0.98), `damp` how fast the highs die, `width` the
-    stereo spread of the tail; the dry signal passes through untouched. `mix` is the wet level:
-    1 puts as much energy in the tail as in the dry signal (at the default size).
+    stereo spread of the tail; the dry signal passes through untouched, scaled by `dry` (0 for
+    a reverb return on a track of its own). `mix` is the wet level: 1 puts as much energy in
+    the tail as in the dry signal (at the default size).
     Rendered as a convolution with the network's cached impulse response.
     """
 
@@ -123,6 +129,7 @@ class Reverb(Effect):
     mix: float = 0.25
     width: float = 1.0
     predelay: float = 0.01
+    dry: float = 1.0
 
     def _feedback(self) -> float:
         return 0.7 + 0.28 * float(np.clip(self.size, 0.0, 1.0))
@@ -141,7 +148,7 @@ class Reverb(Effect):
         left, right = (oaconvolve(inp, h)[: inp.size] for h in ir)
         w1, w2 = self.width / 2.0 + 0.5, (1.0 - self.width) / 2.0
         tail = np.stack([w1 * left + w2 * right, w1 * right + w2 * left])
-        return dry + self.mix * _WET_GAIN * tail
+        return self.dry * dry + self.mix * _WET_GAIN * tail
 
     def tail(self, ctx: RenderContext) -> float:
         return float(min(_MAX_IR_SECONDS, self.predelay + 1.5 * self._t60()))
