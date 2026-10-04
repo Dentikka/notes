@@ -55,3 +55,16 @@ def test_a_minor_chord_is_found_on_its_tuning():
     _, c = chroma(x, SR, a4)
     name, score = best_chord(c.mean(axis=1))
     assert name == "Am" and score > 0.8
+
+
+def test_melody_track_finds_a_lead_over_chords():
+    from notes import ElectricGuitar
+    from notes.ears.transcribe import melody_track
+
+    lead = Track("lead", ElectricGuitar(drive=0.5))(melody("E5@2 D5@2 C5@2 B4@2", step=E))
+    chords = Track("rhythm", ElectricGuitar(drive=0.3), gain=-6)(melody("[A2,E3,A3]@8", step=E))
+    x = _render(stack(lead, chords))
+    track = melody_track(x, SR, 300.0, 1000.0)
+    for t, midi in {0.1: 76, 0.6: 74, 1.1: 72, 1.6: 71}.items():
+        sel = (track.t > t) & (track.t < t + 0.3)
+        assert 69 + 12 * np.log2(np.nanmedian(track.f0[sel]) / 440.0) == pytest.approx(midi, abs=0.3)

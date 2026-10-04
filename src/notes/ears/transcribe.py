@@ -2,6 +2,8 @@
 
 - `pitch_track`: the fundamental of one voice (a bass line, a lead) per frame by YIN
   (de Cheveigné and Kawahara, JASA 2002), with its clarity and level;
+- `melody_track`: the most salient pitch per frame in a register, by harmonic summation, for
+  a lead over chords where YIN, made for a single voice, fails;
 - `notes_from_track`: that track cut into notes at onsets and at pitch jumps, each with its
   median pitch and its contour (where bends, slides and vibrato show);
 - `drum_hits`: the onsets of a drum stem, each explained as a non-negative mix of a kit's
@@ -25,6 +27,7 @@ __all__ = [
     "chroma",
     "drum_hits",
     "drum_profile",
+    "melody_track",
     "notes_from_track",
     "pitch_track",
 ]
@@ -110,6 +113,38 @@ def pitch_track(
                 f0[c0 + i] = sr / (k + shift)
     f0[level < level.max() - floor_db] = np.nan
     return PitchTrack(starts / sr, f0, clarity, level)
+
+
+def melody_track(
+    x: np.ndarray, sr: int, fmin: float = 200.0, fmax: float = 1400.0, *, hop: int = 256, n_fft: int = 4096,
+    harmonics: int = 6, smooth: int = 5, min_clarity: float = 0.35,
+) -> PitchTrack:
+    """The predominant pitch in `fmin`-`fmax` per frame: the candidate (10-cent grid) whose
+    first `harmonics` partials (weights 0.8^k) carry the most compressed magnitude, median
+    filtered over `smooth` frames against octave flips. Clarity is the winner's share of the
+    frame's salience above its median; frames under `min_clarity` are unvoiced."""
+    x = np.asarray(x, dtype=float)
+    window = np.hanning(n_fft)
+    f = np.fft.rfftfreq(n_fft, 1.0 / sr)
+    grid = fmin * 2.0 ** (np.arange(int(1200 * np.log2(fmax / fmin)) // 10 + 1) / 120.0)
+    weights = 0.8 ** np.arange(harmonics)
+    starts = np.arange(0, max(len(x) - n_fft, 1), hop)
+    best, clarity, level = np.zeros(len(starts)), np.zeros(len(starts)), np.zeros(len(starts))
+    for i, s in enumerate(starts):
+        seg = x[s : s + n_fft]
+        mag = np.sqrt(np.abs(np.fft.rfft(np.pad(seg, (0, n_fft - len(seg))) * window)))
+        sal = sum(w * np.interp(grid * (h + 1), f, mag) for h, w in enumerate(weights))
+        k = int(np.argmax(sal))
+        best[i] = grid[k]
+        floor = float(np.median(sal))
+        clarity[i] = (sal[k] - floor) / max(float(sal[k]), 1e-12)
+        level[i] = 10.0 * np.log10(np.mean(seg**2) + 1e-20)
+    cents = 1200.0 * np.log2(best / fmin)
+    pad = smooth // 2
+    cents = np.array([np.median(cents[max(0, i - pad) : i + pad + 1]) for i in range(len(cents))])
+    f0 = fmin * 2.0 ** (cents / 1200.0)
+    f0[clarity < min_clarity] = np.nan
+    return PitchTrack((starts + n_fft / 2) / sr, f0, clarity, level)
 
 
 def notes_from_track(
