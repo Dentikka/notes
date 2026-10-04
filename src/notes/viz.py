@@ -15,7 +15,7 @@ from scipy.signal import stft
 from notes.ir.gm import GM_DRUMS
 from notes.ir.score import Score
 
-__all__ = ["pianoroll", "spectrogram"]
+__all__ = ["comparison", "pianoroll", "spectrogram"]
 
 _PITCH_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
 
@@ -93,6 +93,66 @@ def pianoroll(score: Score, path: str | Path) -> Path:
     fig.suptitle(score.title or "", x=0.01, ha="left", fontsize=11)
     out = Path(path)
     fig.savefig(out, dpi=110, bbox_inches="tight")
+    plt.close(fig)
+    return out
+
+
+def comparison(comp: Any, path: str | Path, title: str | None = None) -> Path:
+    """A render against its reference (`notes.ears.compare.Comparison`): the long-term
+    spectra and their difference, both log-mel spectrograms and the difference, the band
+    envelopes with the onsets, and the chroma similarity over time."""
+    plt = _pyplot()
+    rep, tr = comp.report, comp.traces
+    tone = rep["tone"]
+    t = tr["t"]
+    mel_a, mel_b = tr["mel"]
+    fig = plt.figure(figsize=(14, 17))
+    grid = fig.add_gridspec(6, 2, height_ratios=[1.3, 1, 1, 1, 1.1, 0.7], hspace=0.45, top=0.95)
+    ax = fig.add_subplot(grid[0, 0])
+    ax.semilogx(tone["bands_hz"], tone["reference_db"], "o-", ms=3, color="0.2", label="reference")
+    ax.semilogx(tone["bands_hz"], tone["render_db"], "o--", ms=3, color="tab:red", label="render")
+    ax.set_ylim(max(tone["reference_db"]) - 60, max(tone["reference_db"] + tone["render_db"]) + 5)
+    ax.set(xlabel="Hz", ylabel="dB", title="long-term spectrum, third octaves")
+    ax.legend(fontsize=8)
+    ax.grid(color="0.9")
+    ax = fig.add_subplot(grid[0, 1])
+    pairs = [(f, d) for f, d in zip(tone["bands_hz"], tone["diff_db"], strict=True) if d is not None]
+    ax.axhspan(-2, 2, color="0.92")
+    ax.axhline(0, color="0.5", lw=0.8)
+    ax.semilogx([f for f, _ in pairs], [d for _, d in pairs], "o-", ms=3, color="tab:purple")
+    ax.set(xlabel="Hz", ylabel="dB", title=f"render − reference: tilt {tone['tilt_db_per_octave']:+.2f} dB/oct, "
+           f"rms {tone['rms_db']:.1f} dB")
+    ax.grid(color="0.9")
+    extent = (0.0, float(t[-1]) if len(t) else 1.0, 0.0, float(mel_a.shape[0]))
+    top = float(max(mel_a.max(), mel_b.max()))
+    for row, (name, mel) in enumerate((("reference", mel_a), ("render", mel_b)), start=1):
+        ax = fig.add_subplot(grid[row, :])
+        ax.imshow(mel, origin="lower", aspect="auto", extent=extent, cmap="magma", vmin=tr["floor"], vmax=top)
+        ax.set_ylabel(f"{name}\nmel band")
+    ax = fig.add_subplot(grid[3, :])
+    image = ax.imshow(mel_b - mel_a, origin="lower", aspect="auto", extent=extent, cmap="coolwarm", vmin=-20, vmax=20)
+    ax.set_ylabel("render − ref\nmel band")
+    fig.colorbar(image, ax=ax, pad=0.01, label="dB")
+    ax = fig.add_subplot(grid[4, :])
+    colors = {"low": "tab:blue", "mid": "tab:green", "high": "tab:orange"}
+    for name, (ea, eb) in tr["envelopes"].items():
+        ax.plot(t, ea, color=colors[name], lw=1, label=f"{name}, reference")
+        ax.plot(t, eb, color=colors[name], lw=1, ls="--", label=f"{name}, render")
+    onsets_ref, onsets_est = tr["onsets"]
+    ax.vlines(onsets_ref, 0.97, 1.0, transform=ax.get_xaxis_transform(), color="0.2", lw=0.8)
+    ax.vlines(onsets_est, 0.93, 0.96, transform=ax.get_xaxis_transform(), color="tab:red", lw=0.8)
+    ax.set(ylabel="dB", title="band envelopes (ticks: onsets, reference above, render below)")
+    ax.legend(fontsize=7, ncol=3, loc="lower left")
+    ax.set_xlim(extent[0], extent[1])
+    ax = fig.add_subplot(grid[5, :])
+    ax.plot(tr["chroma_t"], tr["chroma_similarity"], color="tab:purple", lw=1)
+    ax.axhline(0.75, color="0.6", lw=0.8, ls=":")
+    ax.set(ylim=(0, 1.02), xlabel="seconds", ylabel="chroma sim.",
+           title=f"harmony: mean {rep['harmony']['chroma_similarity']}")
+    ax.set_xlim(extent[0], extent[1])
+    fig.suptitle(title or "render vs reference", x=0.01, ha="left", fontsize=12)
+    out = Path(path)
+    fig.savefig(out, dpi=100, bbox_inches="tight")
     plt.close(fig)
     return out
 
