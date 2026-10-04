@@ -4,6 +4,7 @@
     notes listen song.wav [--prompt "..."] [--reference other.wav]
     notes info song.py
     notes export song.wav [--mp3] [--mp4] [--subtitle "..."]
+    notes compare original.flac attempt.wav --start 0:12 --end 0:31
 
 A script defines ``song = Song(...)``. When the output directory differs from the script's,
 the script is copied there, so every render folder holds the exact source it came from.
@@ -170,6 +171,46 @@ def _export(args: argparse.Namespace) -> int:
     return 0
 
 
+def _seconds(text: str | None) -> float | None:
+    """'75.5', '1:15.5' or '0:01:15.5' as seconds."""
+    if text is None:
+        return None
+    value = 0.0
+    for part in text.split(":"):
+        value = 60.0 * value + float(part)
+    return value
+
+
+def _compare(args: argparse.Namespace) -> int:
+    from notes.ears.compare import ANALYSIS_RATE, compare, format_comparison, listening, load
+    from notes.engine.audio import write_wav
+    from notes.viz import comparison
+
+    reference, render = Path(args.reference).resolve(), Path(args.render).resolve()
+    start = _seconds(args.start) or 0.0
+    comp = compare(load(reference, start=start, end=_seconds(args.end)), load(render), max_lag=args.max_lag)
+    report = {"reference": str(reference), "reference_start_s": start, "render": str(render), **comp.report}
+    if args.clap:
+        from notes.ears import Ear, cosine
+
+        ear = Ear(args.model)
+        report["clap"] = {"cosine": round(cosine(ear.embed_audio(comp.reference, ANALYSIS_RATE),
+                                                 ear.embed_audio(comp.render, ANALYSIS_RATE)), 4)}
+    out = Path(args.out).resolve() if args.out else render.parent
+    out.mkdir(parents=True, exist_ok=True)
+    stem = out / f"{render.stem}.vs.{reference.stem}"
+    print(format_comparison(report))
+    written = [_write_json(stem.with_name(stem.name + ".json"), report),
+               comparison(comp, stem.with_name(stem.name + ".png"), f"{render.name} vs {reference.name}")]
+    if not args.no_ab:
+        ab, toggle = listening(comp, block=args.block)
+        written += [write_wav(stem.with_name(stem.name + ".ab.wav"), ab, ANALYSIS_RATE),
+                    write_wav(stem.with_name(stem.name + ".toggle.wav"), toggle, ANALYSIS_RATE)]
+    for path in written:
+        print(f"wrote {path}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(errors="replace")
@@ -195,9 +236,22 @@ def main(argv: list[str] | None = None) -> int:
     listen.add_argument("--reference", help="another WAV to compare with (cosine of CLAP embeddings)")
     listen.add_argument("--top", type=int, default=3, help="labels to show per category")
     listen.set_defaults(func=_listen)
+    comp = sub.add_parser("compare", help="measure a render against a reference recording (tone, envelope, "
+                                          "timing, harmony, space) and write A/B listening files")
+    comp.add_argument("reference", help="the recording to match: WAV, or MP3/FLAC/M4A... (needs notes[media])")
+    comp.add_argument("render", help="our attempt, a WAV")
+    comp.add_argument("--start", help="where the fragment starts in the reference, seconds or m:ss")
+    comp.add_argument("--end", help="where it ends")
+    comp.add_argument("--max-lag", type=float, default=1.0, help="largest shift (s) tried when aligning")
+    comp.add_argument("--block", type=float, default=2.0, help="seconds between switches in the toggle file")
+    comp.add_argument("--no-ab", action="store_true", help="skip the listening files")
+    comp.add_argument("--clap", action="store_true", help="also the cosine of CLAP embeddings (needs notes[ears])")
+    comp.add_argument("-o", "--out", help="output directory (default: the render's)")
+    comp.set_defaults(func=_compare)
+    for p in (render, listen, comp):
+        p.add_argument("--model", default=DEFAULT_MODEL, help="CLAP checkpoint on Hugging Face")
     for p in (render, listen):
         p.add_argument("--prompt", action="append", help="text to score the audio against (repeatable)")
-        p.add_argument("--model", default=DEFAULT_MODEL, help="CLAP checkpoint on Hugging Face")
     info = sub.add_parser("info", help="describe a script's song without rendering")
     info.add_argument("script")
     info.set_defaults(func=_info)
