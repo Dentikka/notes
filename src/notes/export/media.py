@@ -1,4 +1,5 @@
-"""Share a render: MP3, and MP4 video (a still cover over the audio), through ffmpeg.
+"""Share a render: MP3, and MP4 video (a still cover over the audio), through ffmpeg; and
+read any audio file ffmpeg can (a reference recording to compare a render with).
 
 ffmpeg comes from the optional ``imageio-ffmpeg`` package (``pip install "notes[media]"``)
 or, failing that, from the PATH. The cover is drawn with matplotlib: the title, a line of
@@ -12,9 +13,11 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import numpy as np
+
 from notes.ir.score import Score
 
-__all__ = ["cover", "ffmpeg_exe", "to_mp3", "to_mp4"]
+__all__ = ["cover", "decode", "ffmpeg_exe", "to_mp3", "to_mp4"]
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +48,24 @@ def _run(args: list[str]) -> None:
                           capture_output=True, text=True)
     if proc.returncode:
         raise RuntimeError(f"ffmpeg failed: {proc.stderr.strip()}")
+
+
+def decode(
+    path: str | Path, sr: int = 44100, *, start: float = 0.0, seconds: float | None = None, channels: int = 2
+) -> np.ndarray:
+    """Any audio file ffmpeg reads (MP3, FLAC, M4A, float WAV...) as a ``(channels, samples)``
+    float array at `sr`, from `start` for `seconds` (to the end if None)."""
+    args = [ffmpeg_exe(), "-hide_banner", "-loglevel", "error"]
+    if start:
+        args += ["-ss", f"{start:.3f}"]
+    args += ["-i", str(path)]
+    if seconds is not None:
+        args += ["-t", f"{seconds:.3f}"]
+    args += ["-f", "f32le", "-acodec", "pcm_f32le", "-ac", str(channels), "-ar", str(sr), "-"]
+    proc = subprocess.run(args, capture_output=True)
+    if proc.returncode:
+        raise RuntimeError(f"ffmpeg could not read {path}: {proc.stderr.decode(errors='replace').strip()}")
+    return np.frombuffer(proc.stdout, dtype="<f4").astype(float).reshape(-1, channels).T
 
 
 def to_mp3(wav: str | Path, out: str | Path, *, bitrate: str = "320k", tags: dict[str, str] | None = None) -> Path:
