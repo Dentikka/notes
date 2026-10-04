@@ -11,9 +11,11 @@ __version__ = "0.1.0"
 from notes.engine import (
     EQ,
     FM,
+    AcousticGuitar,
     Bass,
     BassGuitar,
     Bell,
+    Body,
     Cabinet,
     Chorus,
     Compressor,
@@ -72,9 +74,11 @@ from notes.lang import (
 __all__ = [
     "EQ",
     "FM",
+    "AcousticGuitar",
     "Bass",
     "BassGuitar",
     "Bell",
+    "Body",
     "Cabinet",
     "Chorus",
     "Compressor",

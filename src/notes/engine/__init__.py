@@ -2,9 +2,10 @@
 
 from notes.engine.audio import read_wav, write_wav
 from notes.engine.base import Effect, Instrument, RenderContext, Voice
-from notes.engine.effects import EQ, Cabinet, Chorus, Compressor, Delay, Drive, Filter, GuitarAmp, Reverb, Room
+from notes.engine.effects import EQ, Body, Cabinet, Chorus, Compressor, Delay, Drive, Filter, GuitarAmp, Reverb, Room
 from notes.engine.instruments import (
     FM,
+    AcousticGuitar,
     Bass,
     BassGuitar,
     Bell,
@@ -33,9 +34,11 @@ __all__ = [
     "EQ",
     "FM",
     "INSTRUMENTS",
+    "AcousticGuitar",
     "Bass",
     "BassGuitar",
     "Bell",
+    "Body",
     "Cabinet",
     "Chorus",
     "Compressor",
