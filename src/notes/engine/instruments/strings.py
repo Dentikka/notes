@@ -28,6 +28,9 @@ _LEGATO_SOFTNESS = 0.6
 _LEGATO_LEVEL = 0.7
 #: Time constant (s) of the pitch falling back after a pluck stretches the string.
 _TENSION_TAU = 0.1
+#: Strings 4-6 (D, A, low E) are wound on a standard electric set; G and up are plain. A note
+#: without a string is taken as wound below G3, where only those strings reach.
+_WOUND_STRINGS, _LOWEST_PLAIN = (4, 5, 6), 55
 
 
 def _t60(sustain: float, freq: float) -> float:
@@ -140,15 +143,18 @@ class ElectricGuitar(Instrument):
     a full-velocity pluck starts (tension falling back over ~0.1 s), `pitch_drift` the
     cents a fretting finger lets the pitch wander, `velocity_brightness` how much softer
     picking also rounds the pluck (0: velocity sets only the level; 1: a note at velocity
-    0.3 is picked with 0.3 x the hardness, as a gently picked string sounds darker). With
-    `fretting`, each note is placed on a string and fret (`fret_scale`) and the pick and
-    pickup positions are taken along the shortened string; otherwise they are the same
-    fractions for every note.
+    0.3 is picked with 0.3 x the hardness, as a gently picked string sounds darker);
+    `wound_treble` and `wound_brightness` scale the treble decay and the pluck's hardness on
+    the wound strings (D, A, low E), which lose their highs faster than the plain ones (1:
+    every string alike). With `fretting`, each note is placed on a string and fret
+    (`fret_scale`) and the pick and pickup positions are taken along the shortened string;
+    otherwise they are the same fractions for every note.
 
     Per-note parameters: ``palm_mute=True`` for chugs that ring `mute_decay` seconds (T60)
     with the pluck softened to `mute_brightness`; ``legato=True`` for a note sounded by the
     fretting hand (hammer-on, pull-off, the end of a slide): no pick click, a softer and
-    quieter start, no pitch kick; and ``vibrato``, ``bend``, ``slide`` (see
+    quieter start, no pitch kick; ``string=1..6`` (high e to low E) for which string a note
+    is on, otherwise wound below G3; and ``vibrato``, ``bend``, ``slide`` (see
     `notes.engine.articulation`; vibrato is pushed across the fret, only ever sharpening).
     """
 
@@ -168,6 +174,8 @@ class ElectricGuitar(Instrument):
     fretting: bool = False
     pick_noise: float = 0.2
     velocity_brightness: float = 0.0
+    wound_treble: float = 1.0
+    wound_brightness: float = 1.0
     mute_decay: float = 0.5
     mute_brightness: float = 0.75
     release: float = 0.06
@@ -196,6 +204,10 @@ class ElectricGuitar(Instrument):
         t60_high = min(self.treble_decay, 0.3 * t60) if muted else self.treble_decay
         hardness = self.brightness * (self.mute_brightness if muted else 1.0) * (_LEGATO_SOFTNESS if legato else 1.0)
         hardness *= 1.0 - self.velocity_brightness * (1.0 - v.vel)
+        string = v.params.get("string")
+        if (string in _WOUND_STRINGS) if string is not None else v.pitch < _LOWEST_PLAIN:
+            t60_high *= self.wound_treble
+            hardness *= self.wound_brightness
         scale = fret_scale(v.pitch) if self.fretting else 1.0
         position = _along(_PICKUP_POSITION[self.pickup], scale)
         pick = _along(self.pick_position, scale)

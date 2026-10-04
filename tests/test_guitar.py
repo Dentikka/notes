@@ -101,3 +101,25 @@ def test_softer_picking_sounds_darker_only_when_asked():
     assert np.allclose(note(1.0, 1.0), note(1.0, 0.0))  # full velocity: unchanged
     assert np.allclose(note(0.3, 0.0), note(0.3, 0.0))
     assert centroid(note(0.3, 1.0)) < 0.9 * centroid(note(0.3, 0.0))
+
+
+def test_wound_strings_can_be_darker():
+    from notes import ElectricGuitar
+    from notes.engine import Voice
+
+    def treble(y):
+        f, mag = np.fft.rfftfreq(SR // 2, 1 / SR), np.abs(np.fft.rfft(y[: SR // 2]))
+        return float(mag[f > 2000].sum() / mag.sum())
+
+    ctx = RenderContext(sr=SR, bpm=120)
+    dark = ElectricGuitar(drive=0.0, wound_treble=0.2, wound_brightness=0.5)
+    plain = ElectricGuitar(drive=0.0)
+
+    def note(g, pitch, string=None):
+        params = {} if string is None else {"string": string}
+        return g.voice(Voice(440.0 * 2 ** ((pitch - 69) / 12), pitch, 0.5, 0.8, params), ctx, np.random.default_rng(0))
+
+    assert treble(note(dark, 50.0)) < 0.7 * treble(note(plain, 50.0))  # D3: only the D string or lower
+    assert np.allclose(note(dark, 64.0), note(plain, 64.0))  # E4 with no string: taken as plain
+    assert treble(note(dark, 59.0, string=4)) < 0.7 * treble(note(plain, 59.0, string=4))  # B3 on the D string
+    assert np.allclose(note(dark, 59.0, string=2), note(plain, 59.0, string=2))  # open B: plain
