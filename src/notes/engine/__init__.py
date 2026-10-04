@@ -18,6 +18,7 @@ from notes.engine.instruments import (
     Pluck,
     RockKit,
     Synth,
+    SynthGuitar,
 )
 from notes.engine.mixer import RenderResult, render_score
 from notes.engine.registry import (
@@ -61,6 +62,7 @@ __all__ = [
     "RenderContext",
     "RenderResult",
     "Synth",
+    "SynthGuitar",
     "Voice",
     "build_effect",
     "build_instrument",
