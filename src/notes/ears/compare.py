@@ -44,8 +44,10 @@ ANALYSIS_RATE = 44100
 _BANDS = {"low": (20.0, 250.0), "mid": (250.0, 2500.0), "high": (2500.0, 20000.0)}
 #: Third-octave band centres, 31.5 Hz to 16 kHz.
 _THIRDS = 1000.0 * 2.0 ** (np.arange(-15, 13) / 3.0)
-#: Bands quieter than the reference's loudest by more than this stay out of the tone summary.
-_TONE_RANGE_DB = 50.0
+#: Bands quieter than the reference's loudest by more than this stay out of the tone summary
+#: (they stay in the figure). 35 dB: the tape hiss of a quiet 1984 intro sits 38 dB down, and
+#: at 50 dB it outweighed every band the instrument settings can move.
+_TONE_RANGE_DB = 35.0
 #: Range of spectrograms (dB below the reference's maximum) and of band envelopes.
 _FLOOR_DB, _ENVELOPE_RANGE_DB = 70.0, 60.0
 _ONSET_FFT, _ONSET_HOP = 2048, 256
