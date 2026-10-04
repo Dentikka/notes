@@ -82,3 +82,22 @@ def test_legato_note_has_no_pick_and_starts_softer():
     legato = g.voice(Voice(330.0, 64.0, 0.5, 0.8, {"legato": True}), ctx, np.random.default_rng(0))
     first = slice(0, int(0.01 * SR))
     assert np.sqrt(np.mean(legato[first] ** 2)) < 0.7 * np.sqrt(np.mean(picked[first] ** 2))
+
+
+def test_softer_picking_sounds_darker_only_when_asked():
+    from notes import ElectricGuitar
+    from notes.engine import Voice
+
+    def centroid(y):
+        mag = np.abs(np.fft.rfft(y[: SR // 4]))
+        return float((np.fft.rfftfreq(SR // 4, 1 / SR) * mag).sum() / mag.sum())
+
+    ctx = RenderContext(sr=SR, bpm=120)
+
+    def note(vel, coupling):
+        g = ElectricGuitar(drive=0.0, velocity_brightness=coupling)
+        return g.voice(Voice(330.0, 64.0, 0.5, vel, {}), ctx, np.random.default_rng(0))
+
+    assert np.allclose(note(1.0, 1.0), note(1.0, 0.0))  # full velocity: unchanged
+    assert np.allclose(note(0.3, 0.0), note(0.3, 0.0))
+    assert centroid(note(0.3, 1.0)) < 0.9 * centroid(note(0.3, 0.0))
