@@ -35,6 +35,7 @@ from notes.engine import (
     RockKit,
     Room,
     Synth,
+    SynthGuitar,
     render_score,
 )
 from notes.ir import Score
@@ -108,6 +109,7 @@ __all__ = [
     "Score",
     "Song",
     "Synth",
+    "SynthGuitar",
     "T",
     "Track",
     "W",
