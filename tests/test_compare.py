@@ -74,6 +74,29 @@ def test_a_longer_sustain_shows_as_a_slower_decay():
     assert decay["tail_render_db_per_s"] > decay["tail_reference_db_per_s"]
 
 
+def test_pick_clicks_show_in_the_attacks_not_in_the_whole():
+    x = _arpeggio(ARPEGGIO, step=0.4)
+    rng = np.random.default_rng(0)
+    clicks = np.zeros(x.shape[1])
+    for i in range(len(ARPEGGIO)):
+        start = int(i * 0.4 * SR)
+        clicks[start : start + int(0.003 * SR)] = 0.3 * rng.uniform(-1.0, 1.0, int(0.003 * SR))
+    # where the strings have partials too (1.5-7 kHz), so the clicks hardly change the whole
+    clicked = x + sosfiltfilt(butter(4, [1500.0, 7000.0], "bandpass", fs=SR, output="sos"), clicks)
+    rep = compare(x, clicked).report
+    assert rep["attack"]["notes"] >= len(ARPEGGIO) - 1
+    assert rep["attack"]["level_db"] > 0.3
+    assert rep["attack"]["tilt_db_per_octave"] > rep["tone"]["tilt_db_per_octave"] + 0.5
+    assert rep["attack"]["rms_db"] > 3.0 * rep["tone"]["rms_db"]
+
+
+def test_tremolo_shows_as_flutter():
+    x = _arpeggio(ARPEGGIO, step=0.4, tau=1.5)
+    shimmer = x * (1.0 + 0.3 * np.sin(2 * np.pi * 6.0 * np.arange(x.shape[1]) / SR))
+    spec = compare(x, shimmer).report["spectrogram"]
+    assert spec["render_flutter_db"] > spec["reference_flutter_db"] + 0.25
+
+
 def test_listening_files_play_both_and_toggle_between_them():
     x = _arpeggio(ARPEGGIO)
     comp = compare(x, x + sosfilt(butter(2, 2000.0, "highpass", fs=SR, output="sos"), x))

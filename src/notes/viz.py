@@ -119,7 +119,13 @@ def comparison(comp: Any, path: str | Path, title: str | None = None) -> Path:
     pairs = [(f, d) for f, d in zip(tone["bands_hz"], tone["diff_db"], strict=True) if d is not None]
     ax.axhspan(-2, 2, color="0.92")
     ax.axhline(0, color="0.5", lw=0.8)
-    ax.semilogx([f for f, _ in pairs], [d for _, d in pairs], "o-", ms=3, color="tab:purple")
+    ax.semilogx([f for f, _ in pairs], [d for _, d in pairs], "o-", ms=3, color="tab:purple", label="whole")
+    attack = rep.get("attack") or {}
+    if attack:
+        hits = [(f, d) for f, d in zip(tone["bands_hz"], attack["diff_db"], strict=True) if d is not None]
+        ax.semilogx([f for f, _ in hits], [d for _, d in hits], "o--", ms=3, color="tab:orange",
+                    label=f"attacks, first 20 ms ({attack['level_db']:+.1f} dB vs whole)")
+        ax.legend(fontsize=8)
     ax.set(xlabel="Hz", ylabel="dB", title=f"render − reference: tilt {tone['tilt_db_per_octave']:+.2f} dB/oct, "
            f"rms {tone['rms_db']:.1f} dB")
     ax.grid(color="0.9")

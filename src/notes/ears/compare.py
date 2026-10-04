@@ -6,8 +6,11 @@ in loudness (BS.1770); then both are measured on the axes one would adjust:
 
 - tone: the long-term spectrum in third-octave bands; render minus reference in dB, its
   mean, RMS and tilt (dB per octave) over the bands the reference fills;
+- attack: the same curve for the first ~20 ms of every note, and how much the render's
+  attacks stand out from its whole sound against the reference's (pick, hardness);
 - time-frequency: log-mel spectrogram distance, and the multi-resolution STFT distance
   (spectral convergence plus log-magnitude L1 at three FFT sizes, as in Parallel WaveGAN);
+  the flutter of each, the frame-to-frame change away from note starts (chorus, vibrato);
 - envelope: loudness over time in a low, mid and high band; how fast the sound decays
   between onsets and in the final tail, in dB per second;
 - timing: onsets of both, matched within 50 ms: F-measure and timing errors;
@@ -48,6 +51,7 @@ _FLOOR_DB, _ENVELOPE_RANGE_DB = 70.0, 60.0
 _ONSET_FFT, _ONSET_HOP = 2048, 256
 _MEL_FFT, _MEL_HOP, _MELS = 2048, 512, 96
 _CHROMA_FFT, _CHROMA_HOP = 8192, 2048
+_ATTACK_FFT = 1024
 #: Onsets of the two signals within this distance (s) count as the same note.
 _TOLERANCE = 0.05
 #: Chroma similarity below this marks a span where the notes probably differ.
@@ -111,11 +115,31 @@ def _mel_filters(freqs: np.ndarray, n: int = _MELS, fmin: float = 40.0, fmax: fl
     return np.maximum(0.0, np.minimum((freqs - lo) / (mid - lo), (hi - freqs) / (hi - mid)))
 
 
+def _band_levels(freqs: np.ndarray, power: np.ndarray) -> np.ndarray:
+    """Third-octave levels (dB) of a power spectrum."""
+    return np.array([_db(power[(freqs >= c * 2.0 ** (-1 / 6)) & (freqs < c * 2.0 ** (1 / 6))].sum()) for c in _THIRDS])
+
+
 def _third_octaves(x: np.ndarray) -> np.ndarray:
     """Long-term level (dB) in each third-octave band."""
     f, p = welch(x, fs=ANALYSIS_RATE, nperseg=min(8192, len(x)))
-    df = f[1] - f[0]
-    return np.array([_db(p[(f >= c * 2.0 ** (-1 / 6)) & (f < c * 2.0 ** (1 / 6))].sum() * df) for c in _THIRDS])
+    return _band_levels(f, p * (f[1] - f[0]))
+
+
+def _curve(ref: np.ndarray, est: np.ndarray) -> dict[str, Any]:
+    """Render minus reference over the bands the reference fills: per band, mean, RMS, tilt
+    (dB per octave) and the three largest gaps."""
+    keep = (ref > ref.max() - _TONE_RANGE_DB) & (_THIRDS < 0.45 * ANALYSIS_RATE)
+    diff = est - ref
+    tilt = float(np.polyfit(np.log2(_THIRDS[keep] / 1000.0), diff[keep], 1)[0]) if keep.sum() >= 2 else 0.0
+    order = np.argsort(-np.abs(np.where(keep, diff, 0.0)))[:3]
+    return {
+        "diff_db": [round(float(d), 2) if k else None for d, k in zip(diff, keep, strict=True)],
+        "mean_db": round(float(diff[keep].mean()), 2),
+        "rms_db": round(float(np.sqrt(np.mean(diff[keep] ** 2))), 2),
+        "tilt_db_per_octave": round(tilt, 2),
+        "largest": [[round(float(_THIRDS[i]), 1), round(float(diff[i]), 2)] for i in order if keep[i]],
+    }
 
 
 def _onset_strength(x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -269,6 +293,29 @@ def _crest(x: np.ndarray) -> float:
     return round(float(20.0 * np.log10(np.max(np.abs(x)) / max(float(np.sqrt(np.mean(x**2))), 1e-12))), 1)
 
 
+def _attack(a: np.ndarray, b: np.ndarray, onsets: np.ndarray) -> dict[str, Any]:
+    """The start of every reference note (a 23 ms Hann window centred 10 ms after the onset)
+    against the same moments of the render: their tone curve, and how much more the render's
+    attacks stand out from its sound as a whole (`level_db`; negative: softer attacks)."""
+    n = _ATTACK_FFT
+    starts = [s for s in (int(round((o + 0.01) * ANALYSIS_RATE)) - n // 2 for o in onsets) if 0 <= s <= len(a) - n]
+    if not starts:
+        return {}
+    window = np.hanning(n)
+    att_a = np.mean([np.abs(np.fft.rfft(a[s : s + n] * window)) ** 2 for s in starts], axis=0)
+    att_b = np.mean([np.abs(np.fft.rfft(b[s : s + n] * window)) ** 2 for s in starts], axis=0)
+    level = _db(att_b.sum() / max(float(att_a.sum()), 1e-30)) - _db(np.mean(b**2) / max(float(np.mean(a**2)), 1e-30))
+    freqs = np.fft.rfftfreq(n, 1.0 / ANALYSIS_RATE)
+    return {"notes": len(starts), "level_db": round(float(level), 2),
+            **_curve(_band_levels(freqs, att_a), _band_levels(freqs, att_b))}
+
+
+def _flutter(mel: np.ndarray, steady: np.ndarray) -> float:
+    """Mean change (dB) of the mel spectrum from one frame to the next away from note starts:
+    the shimmer of chorus, vibrato and tremolo, and the grain of noise."""
+    return round(float(np.abs(np.diff(mel, axis=1))[steady].mean()), 2) if steady.any() else 0.0
+
+
 def compare(reference: np.ndarray, render: np.ndarray, sr: int = ANALYSIS_RATE, *, max_lag: float = 1.0) -> Comparison:
     """Align `render` to `reference` (both ``(channels, samples)`` at `sr`; the render may be
     shifted by up to `max_lag` seconds either way), match its loudness, and measure both."""
@@ -288,10 +335,6 @@ def compare(reference: np.ndarray, render: np.ndarray, sr: int = ANALYSIS_RATE, 
     a, b = ref.mean(axis=0), est.mean(axis=0)
 
     tone_ref, tone_est = _third_octaves(a), _third_octaves(b)
-    keep = (tone_ref > tone_ref.max() - _TONE_RANGE_DB) & (_THIRDS < 0.45 * ANALYSIS_RATE)
-    diff = tone_est - tone_ref
-    tilt = float(np.polyfit(np.log2(_THIRDS[keep] / 1000.0), diff[keep], 1)[0]) if keep.sum() >= 2 else 0.0
-    order = np.argsort(-np.abs(np.where(keep, diff, 0.0)))[:3]
 
     f, t, mag_a = _spec(a, _MEL_FFT, _MEL_HOP)
     _, _, mag_b = _spec(b, _MEL_FFT, _MEL_HOP)
@@ -318,6 +361,11 @@ def compare(reference: np.ndarray, render: np.ndarray, sr: int = ANALYSIS_RATE, 
     env_a, env_b = np.maximum(env_a, env_floor), np.maximum(env_b, env_floor)
 
     onsets_ref, onsets_est = _onsets(*_onset_strength(a)), _onsets(*_onset_strength(b))
+    attack = _attack(a, b, onsets_ref)
+    near = np.zeros(len(t), dtype=bool)
+    for onset in onsets_ref:
+        near |= (t > onset - 0.01) & (t < onset + 0.08)
+    steady = lit[:, 1:] & lit[:, :-1] & ~near[None, 1:]
 
     tc, chroma_a, energy_a = _chroma(a)
     _, chroma_b, _ = _chroma(b)
@@ -334,14 +382,12 @@ def compare(reference: np.ndarray, render: np.ndarray, sr: int = ANALYSIS_RATE, 
             "bands_hz": [round(float(c), 1) for c in _THIRDS],
             "reference_db": [round(float(v), 2) for v in tone_ref],
             "render_db": [round(float(v), 2) for v in tone_est],
-            "diff_db": [round(float(d), 2) if k else None for d, k in zip(diff, keep, strict=True)],
-            "mean_db": round(float(diff[keep].mean()), 2),
-            "rms_db": round(float(np.sqrt(np.mean(diff[keep] ** 2))), 2),
-            "tilt_db_per_octave": round(tilt, 2),
-            "largest": [[round(float(_THIRDS[i]), 1), round(float(diff[i]), 2)] for i in order if keep[i]],
+            **_curve(tone_ref, tone_est),
         },
+        "attack": attack,
         "spectrogram": {"mel_l1_db": round(float(np.mean(np.abs(mel_a - mel_b)[lit])), 2) if lit.any() else 0.0,
-                        "mrstft": round(_mrstft(a, b), 4)},
+                        "mrstft": round(_mrstft(a, b), 4),
+                        "reference_flutter_db": _flutter(mel_a, steady), "render_flutter_db": _flutter(mel_b, steady)},
         "envelope": {**bands, "decay": _decays(t, env_a, env_b, onsets_ref)},
         "onsets": _match(onsets_ref, onsets_est),
         "harmony": {"chroma_similarity": round(float(sim[sounding].mean()), 3) if sounding.any() else 0.0,
@@ -376,15 +422,21 @@ def format_comparison(report: dict[str, Any]) -> str:
     moved = f"moved {abs(al['lag_ms']):g} ms {'earlier' if al['lag_ms'] >= 0 else 'later'}"
     brighter = "brighter" if tone["tilt_db_per_octave"] > 0 else "darker"
     largest = ", ".join(f"{d:+.1f} dB at {f:g} Hz" for f, d in tone["largest"])
-    decay = env["decay"]
+    decay, spec, att = env["decay"], report["spectrogram"], report.get("attack") or {}
     lines = [
         f"render vs reference over {report['seconds']} s: render {moved}, scaled {al['gain_db']:+.1f} dB "
         f"to the reference's {loud['reference_lufs']} LUFS",
         f"tone      mean {tone['mean_db']:+.1f} dB, rms {tone['rms_db']:.1f} dB, "
         f"tilt {tone['tilt_db_per_octave']:+.2f} dB/oct (render {brighter}); largest {largest}",
-        f"spectrum  log-mel L1 {report['spectrogram']['mel_l1_db']} dB, MR-STFT {report['spectrogram']['mrstft']}",
+        f"spectrum  log-mel L1 {spec['mel_l1_db']} dB, MR-STFT {spec['mrstft']}; flutter reference "
+        f"{spec['reference_flutter_db']} dB, render {spec['render_flutter_db']} dB",
         "envelope  " + ", ".join(f"{k} L1 {env[k]['l1_db']} dB (r {env[k]['corr']})" for k in _BANDS),
     ]
+    if att:
+        harder = "harder" if att["level_db"] > 0 else "softer"
+        lines.insert(2, f"attack    first 20 ms of {att['notes']} notes: {att['level_db']:+.1f} dB against the whole "
+                        f"(render {harder}); tone mean {att['mean_db']:+.1f} dB, rms {att['rms_db']:.1f} dB, "
+                        f"tilt {att['tilt_db_per_octave']:+.2f} dB/oct")
     if "reference_db_per_s" in decay:
         lines.append(f"decay     between onsets: reference {decay['reference_db_per_s']} dB/s, render "
                      f"{decay['render_db_per_s']} dB/s ({decay['segments']} gaps)")
