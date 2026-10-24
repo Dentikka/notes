@@ -224,3 +224,17 @@ Early but working: the full path from script to audio and back to a model's ears
 87 tests, one demo (`examples/first_groove.py`). Next: an MCP server so agents can compose,
 render and listen in a loop; send buses; automation curves; a declarative text front-end.
 CLAP recognises every synth preset and, in a produced context, every guitar variant.
+
+## Piano and bowed strings
+
+`Piano()` synthesizes decaying inharmonic string partials, unison beating and a
+velocity-dependent hammer spectrum. `music.param(pedal=True)` preserves each note's
+natural decay after key release (a per-note pedal, not continuous pedal automation).
+`BowedString()`, `Violin()` and `Cello()` provide sustained harmonic bow sources,
+body resonances, friction noise and controllable vibrato. Explicit per-note vibrato
+parameters override the preset. These are procedural approximations, not recorded
+instrument libraries or a claim of reference matching.
+
+Run `notes render examples/instrument_palette.py -o palette --spectrogram` for a
+palette including electric/acoustic guitars, bass and rock drums. The example's
+`build_song(name)` also exposes each instrument separately.
