@@ -211,6 +211,53 @@ def _compare(args: argparse.Namespace) -> int:
     return 0
 
 
+def _fit(args: argparse.Namespace) -> int:
+    from notes.ears.compare import ANALYSIS_RATE, listening, load
+    from notes.ears.fit import fit_reference
+    from notes.engine.audio import write_wav
+    from notes.viz import comparison
+
+    script = Path(args.script).resolve()
+    namespace = runpy.run_path(str(script), run_name="__notes__")
+    build = namespace.get("build_song")
+    if not callable(build):
+        raise ValueError("fit script must define build_song(settings) -> Song, initial and grid")
+    reference = load(args.reference, start=_seconds(args.start) or 0.0, end=_seconds(args.end))
+    out = Path(args.out).resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    if script != out / script.name:
+        shutil.copy2(script, out / script.name)
+
+    def render(settings):
+        song = build(settings)
+        if not isinstance(song, Song) or song.sample_rate != ANALYSIS_RATE:
+            raise ValueError("build_song must return a Song at 44100 Hz")
+        return song.render(workers=args.workers).audio
+
+    with (out / "trials.jsonl").open("w", encoding="utf-8") as log:
+        def record(trial):
+            log.write(json.dumps(trial, allow_nan=False) + "\n")
+            log.flush()
+            print(f"trial {trial['evaluation']}: {trial['loss']:.4f} {trial['settings']}", flush=True)
+
+        result = fit_reference(reference, render, namespace["initial"], namespace["grid"],
+                               passes=args.passes, max_lag=args.max_lag,
+                               max_evaluations=args.max_evaluations, on_trial=record)
+    _write_json(out / "fitted.json", {"settings": result.settings, "loss": result.loss,
+                "initial_loss": result.history[0]["loss"], "evaluations": len(result.history),
+                "reference": str(Path(args.reference).resolve()), "start": _seconds(args.start) or 0.0,
+                "end": _seconds(args.end), "git_revision": _git_revision(),
+                "max_lag": args.max_lag, "passes": args.passes, "max_evaluations": args.max_evaluations,
+                "audio": "aligned and loudness-matched to reference", "report": result.comparison.report})
+    write_wav(out / "fitted.wav", result.comparison.render, ANALYSIS_RATE, bits=24)
+    ab, toggle = listening(result.comparison)
+    write_wav(out / "fitted.ab.wav", ab, ANALYSIS_RATE)
+    write_wav(out / "fitted.toggle.wav", toggle, ANALYSIS_RATE)
+    comparison(result.comparison, out / "fitted.png", "Fitted instrument vs reference")
+    print(f"best loss {result.loss:.4f}; wrote {out}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(errors="replace")
@@ -255,6 +302,17 @@ def main(argv: list[str] | None = None) -> int:
     info = sub.add_parser("info", help="describe a script's song without rendering")
     info.add_argument("script")
     info.set_defaults(func=_info)
+    fit = sub.add_parser("fit", help="fit a fixed part's instrument parameters to an isolated reference")
+    fit.add_argument("reference")
+    fit.add_argument("script", help="Python script defining build_song(settings), initial and grid")
+    fit.add_argument("-o", "--out", required=True)
+    fit.add_argument("--start", help="reference fragment start in seconds or m:ss")
+    fit.add_argument("--end", help="reference fragment end")
+    fit.add_argument("--passes", type=int, default=2)
+    fit.add_argument("--max-evaluations", type=int, default=100)
+    fit.add_argument("--max-lag", type=float, default=0.05)
+    fit.add_argument("--workers", type=int, default=1)
+    fit.set_defaults(func=_fit)
     export = sub.add_parser("export", help="MP3 and MP4 (still cover + audio) of a render (needs notes[media])")
     export.add_argument("audio", help="a rendered WAV; title and cover come from the IR JSON and piano roll beside it")
     export.add_argument("--mp3", action="store_true", help="only the MP3 (default: both)")

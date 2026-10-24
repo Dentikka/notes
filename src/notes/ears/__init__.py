@@ -3,6 +3,7 @@ measures up against a reference recording (`compare`, numpy and scipy only)."""
 
 from notes.ears.clap import CLAP_SAMPLE_RATE, DEFAULT_MODEL, Ear, Tag, cosine, format_report, to_clap_rate, windows
 from notes.ears.compare import ANALYSIS_RATE, Comparison, compare, format_comparison, listening, load
+from notes.ears.fit import FitResult, fit_loss, fit_reference
 from notes.ears.vocab import TEMPLATES, VOCABULARY
 
 __all__ = [
@@ -13,9 +14,12 @@ __all__ = [
     "VOCABULARY",
     "Comparison",
     "Ear",
+    "FitResult",
     "Tag",
     "compare",
     "cosine",
+    "fit_loss",
+    "fit_reference",
     "format_comparison",
     "format_report",
     "listening",
