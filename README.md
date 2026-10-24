@@ -83,6 +83,31 @@ calibrated to equal loudness, so a track's `gain` is dB relative to the others.
 
 ## Command line
 
+### Fit an instrument to a recording
+
+`notes fit reference.wav examples/reference_fit.py -o out/fit --max-evaluations 30`
+searches instrument/effect settings for a **fixed, known part** against an isolated
+reference (or an externally separated stem). Use `--start m:ss --end m:ss` to cut the
+reference; the script's part starts at zero. The Python script defines `initial`,
+`grid` and `build_song(settings) -> Song` at 44100 Hz. Keep notes, tuning, timing and
+seed fixed, and use `loudness=None` to avoid mastering masking the instrument's response.
+
+The search uses cached coordinate descent, stops when a pass makes no improvement,
+and never exceeds `--max-evaluations` renders (default 100). `--passes` defaults to 2.
+Each trial measures time-dependent spectrum, tone, attacks, envelopes and stereo width.
+Overall gain and up to `--max-lag` seconds of offset (default 0.05) are matched separately.
+The Python API is `notes.ears.fit_reference(reference, render, initial, grid)`; `render`
+returns audio at the specified sample rate. The result includes settings, comparison
+and all unique trials; `on_trial` supports incremental logging.
+
+Outputs: `fitted.json`, flushed `trials.jsonl`, the model script snapshot, `fitted.png`,
+and `fitted.wav`/`fitted.ab.wav`/`fitted.toggle.wav`. Audio is aligned and loudness-matched;
+the gain and offset are recorded in the report. Use a separate output folder for each run.
+The grid search finds a local solution among the supplied values, not necessarily a
+unique parameter set. A wrong part can still receive a lower loss by changing timbre;
+check transcription separately. Spectral peaks include overtones and are not note labels.
+Exact reproduction of a real instrument is limited by the synthesis model and stem quality.
+
 ```bash
 notes render examples/first_groove.py -o out/      # WAV + IR JSON + MIDI + piano roll + meta.json
 notes render song.py --spectrogram --bits 24
