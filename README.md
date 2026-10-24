@@ -5,6 +5,9 @@ composition is a short Python script. The library compiles it into an exact, ser
 intermediate representation (IR) and renders that to audio with a built-in DSP engine: no
 samples, no external synthesizers, bit-reproducible output.
 
+Instrument synthesis must remain fully procedural: no recordings, multisamples,
+or recorded impulse responses as sound sources. Reference audio is for evaluation only.
+
 ```python
 from notes import *
 
