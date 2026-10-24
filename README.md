@@ -96,6 +96,10 @@ or a new onset. `melody` estimates the dominant pitch over accompaniment; choose
 register carefully and inspect the result for octave errors. It retains measured
 bends/vibrato as per-note `pitch_points` (seconds, semitone offsets). This additive
 renderer parameter also works through IR JSON; existing vibrato/bend/slide remain available.
+The legacy melody path splits notes at full-signal attacks, which can re-pick a held
+lead when accompaniment changes. Experimental `--melody-onsets pitch` instead uses
+energy at the estimated voice's harmonics. It can miss compressed attacks or still
+respond to overlapping partials; it has not been validated as a general solution.
 
 `templates` jointly fits spectra rendered for each candidate note, with nonnegative
 sparse activation and independent note endings. It can follow chords and arpeggios
@@ -111,6 +115,23 @@ Template mismatch, distortion, separation noise and bends can all create false n
 `--relative-db`, `--sparsity`, `--min-duration` and `--max-polyphony` expose the assumptions.
 Residual reconstruction error is not note accuracy. The reconstruction omits effects
 outside the chosen instrument. Supply isolated stems; separation is a separate step.
+
+**Current real-recording limitation:** the Humanity guitar reconstructions were rejected
+in listening despite improved spectral/onset metrics. Treat all extracted notes as
+candidates. `notes.json` records `status: unverified` unless `--reference-notes gold.json`
+is supplied. That file contains `notes` with `start`, `end`, `pitch` in the cut's seconds
+and tuning. Reference scoring reports one-to-one onset+pitch and onset+pitch+offset
+precision/recall/F1; it measures agreement with those supplied notes, not their validity.
+Tests cover a held note wrongly split into four plucks, shifted rhythms and wrong octaves.
+
+An additional **experimental** `--method basic-pitch --model-path /path/to/nmp.onnx`
+uses Spotify's [Basic Pitch](https://github.com/spotify/basic-pitch) waveform model on
+CPU, with our own pitch-specific onset/frame decoder. Install `notes[transcription]`
+for ONNX Runtime; obtain the official model separately. No model is downloaded by the
+CLI. The report stores its SHA-256. This avoids matching against our synthesizer's
+templates, but can still hallucinate notes and does not reliably separate lead/rhythm
+guitars. It is an independent baseline, not a verified replacement. The original
+methods and defaults remain available.
 
 Python APIs: `template_track`, `notes_from_templates`, `instrument_templates` in
 `notes.ears.polyphonic`; `notes_from_track(..., sustain_unvoiced=True)` and

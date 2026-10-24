@@ -19,7 +19,9 @@ from fractions import Fraction
 from typing import TYPE_CHECKING
 
 import numpy as np
+from scipy.ndimage import gaussian_filter1d
 from scipy.optimize import nnls
+from scipy.signal import find_peaks
 
 if TYPE_CHECKING:
     from notes.lang.music import Music
@@ -34,6 +36,7 @@ __all__ = [
     "drum_profile",
     "melody_track",
     "notes_from_track",
+    "onsets_from_track",
     "pitch_track",
     "tracked_music",
 ]
@@ -123,12 +126,16 @@ def pitch_track(
 
 def melody_track(
     x: np.ndarray, sr: int, fmin: float = 200.0, fmax: float = 1400.0, *, hop: int = 256, n_fft: int = 4096,
-    harmonics: int = 6, smooth: int = 5, min_clarity: float = 0.35,
+    harmonics: int = 6, smooth: int = 5, min_clarity: float = 0.35, pitch_level: bool = False,
 ) -> PitchTrack:
     """The predominant pitch in `fmin`-`fmax` per frame: the candidate (10-cent grid) whose
     first `harmonics` partials (weights 0.8^k) carry the most compressed magnitude, median
     filtered over `smooth` frames against octave flips. Clarity is the winner's share of the
-    frame's salience above its median; frames under `min_clarity` are unvoiced."""
+    frame's salience above its median; frames under `min_clarity` are unvoiced.
+    ``pitch_level`` measures energy at the winning pitch's harmonics instead of the
+    whole mixture, for detecting this voice's own re-picks with ``onsets_from_track``.
+    Overlapping partials from accompaniment remain a source of error.
+    """
     x = np.asarray(x, dtype=float)
     window = np.hanning(n_fft)
     f = np.fft.rfftfreq(n_fft, 1.0 / sr)
@@ -138,19 +145,54 @@ def melody_track(
     best, clarity, level = np.zeros(len(starts)), np.zeros(len(starts)), np.zeros(len(starts))
     for i, s in enumerate(starts):
         seg = x[s : s + n_fft]
-        mag = np.sqrt(np.abs(np.fft.rfft(np.pad(seg, (0, n_fft - len(seg))) * window)))
+        amplitude = np.abs(np.fft.rfft(np.pad(seg, (0, n_fft - len(seg))) * window))
+        mag = np.sqrt(amplitude)
         sal = sum(w * np.interp(grid * (h + 1), f, mag) for h, w in enumerate(weights))
         k = int(np.argmax(sal))
         best[i] = grid[k]
         floor = float(np.median(sal))
         clarity[i] = (sal[k] - floor) / max(float(sal[k]), 1e-12)
-        level[i] = 10.0 * np.log10(np.mean(seg**2) + 1e-20)
+        energy = (sum((w * np.interp(best[i] * (h + 1), f, amplitude)) ** 2
+                      for h, w in enumerate(weights)) / n_fft**2 if pitch_level else np.mean(seg**2))
+        level[i] = 10.0 * np.log10(energy + 1e-20)
     cents = 1200.0 * np.log2(best / fmin)
     pad = smooth // 2
     cents = np.array([np.median(cents[max(0, i - pad) : i + pad + 1]) for i in range(len(cents))])
     f0 = fmin * 2.0 ** (cents / 1200.0)
     f0[clarity < min_clarity] = np.nan
     return PitchTrack((starts + n_fft / 2) / sr, f0, clarity, level)
+
+
+def onsets_from_track(track: PitchTrack, *, rise_db: float = 4.0, min_gap: float = 0.1) -> np.ndarray:
+    """Attacks in a voice's own energy, not attacks of its accompaniment.
+
+    Use a track with pitch-selective levels for mixed stems. With whole-signal levels
+    this cannot distinguish the voices. The first voiced frame is included; new
+    voiced runs and energy rises count as attacks, but a pitch change alone does not.
+    """
+    if rise_db <= 0 or min_gap <= 0:
+        raise ValueError("rise_db and min_gap must be positive")
+    t = track.t
+    if not len(t):
+        return np.array([])
+    voiced = np.isfinite(track.f0) & (track.level_db > -190)
+    if not voiced.any():
+        return np.array([])
+    hop = float(np.median(np.diff(t))) if len(t) > 1 else 0.01
+    level = gaussian_filter1d(track.level_db.astype(float), max(0.5, 0.008 / hop))
+    lag = max(1, round(0.03 / hop))
+    rise = level - np.r_[np.repeat(level[0], lag), level[:-lag]][:len(t)]
+    peaks, _ = find_peaks(rise, height=rise_db, distance=max(1, round(min_gap / hop)))
+    starts = np.flatnonzero(voiced & ~np.r_[False, voiced[:-1]])
+    measured = np.flatnonzero(voiced)
+    starts = np.array([i for i in starts if i == measured[0]
+                       or t[i] - t[measured[np.searchsorted(measured, i) - 1]] >= min_gap], dtype=int)
+    candidates = sorted(set(starts.tolist() + [int(i) for i in peaks if voiced[i]]))
+    selected = []
+    for i in candidates:
+        if not selected or t[i] - t[selected[-1]] >= min_gap:
+            selected.append(i)
+    return t[selected]
 
 
 def notes_from_track(
