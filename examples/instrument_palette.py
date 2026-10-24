@@ -11,9 +11,8 @@ from notes import (
     Track,
     Violin,
     cat,
-    hit,
     melody,
-    stack,
+    steps,
 )
 
 instruments = {
@@ -32,9 +31,7 @@ def build_song(name):
     instrument = instruments[name]
     track = Track(name, instrument, fx=[Reverb(size=0.35, mix=0.12)])
     if name == "drums":
-        music = stack(hit("kick").rhythm("X...X.X.", step=0.5),
-                      hit("snare").rhythm("..X...X.", step=0.5),
-                      hit("hat").rhythm("XxXxXxXx", step=0.5)) * 2
+        music = steps(kick="X...X.X.", snare="..X...X.", hat="XxXxXxXx", step=0.5) * 2
     elif name == "piano":
         music = melody("[A2,E3,A3,C4]@2 E4 C4 [F2,C3,A3,C4]@2 D4 E4", step=0.5)
     elif name in ("violin", "cello"):
