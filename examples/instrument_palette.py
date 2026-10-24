@@ -15,15 +15,15 @@ from notes import (
     steps,
 )
 
+# Baseline palette. The brighter soundboard/direct variants were rejected on listening;
+# they remain opt-in experimental API options, not recommended presets.
 instruments = {
-    "piano": Piano(model="soundboard"),
+    "piano": Piano(),
     "violin": Violin(),
     "cello": Cello(),
-    "clean-guitar": ElectricGuitar(amplified=False, pickup="middle", brightness=0.9,
-                                    treble_decay=5, pick_position=0.12, velocity_brightness=0.4),
+    "clean-guitar": ElectricGuitar(drive=0.06, pickup="neck", tone=0.3),
     "rock-guitar": ElectricGuitar(drive=0.65),
-    "acoustic-guitar": AcousticGuitar(brightness=1, treble_decay=5, pick_position=0.12,
-                                     prompt_decay=0.45, velocity_brightness=0.4),
+    "acoustic-guitar": AcousticGuitar(),
     "bass": BassGuitar(),
     "drums": RockKit(),
 }
