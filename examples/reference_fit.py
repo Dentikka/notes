@@ -15,3 +15,6 @@ grid = {"tone": [0.1, 0.5, 0.9], "brightness": [0.2, 0.6, 1.0]}
 def build_song(settings):
     bass = Track("bass", BassGuitar(**settings))
     return Song(bass(melody("A1 D2 E2 G1", step=1)), bpm=120, loudness=None, seed=17)
+
+
+song = build_song(initial)
