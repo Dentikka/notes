@@ -15,9 +15,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from fractions import Fraction
+from typing import TYPE_CHECKING
 
 import numpy as np
 from scipy.optimize import nnls
+
+if TYPE_CHECKING:
+    from notes.lang.music import Music
 
 __all__ = [
     "CHORD_TEMPLATES",
@@ -30,6 +35,7 @@ __all__ = [
     "melody_track",
     "notes_from_track",
     "pitch_track",
+    "tracked_music",
 ]
 
 NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
@@ -150,14 +156,43 @@ def melody_track(
 def notes_from_track(
     track: PitchTrack, onsets: Sequence[float] = (), a4: float = 440.0, *, jump: float = 0.7,
     hold: float = 0.05, min_dur: float = 0.06, gap: float = 0.04,
+    sustain_unvoiced: bool = False, floor_db: float = 40.0,
 ) -> list[TrackedNote]:
     """Cut a pitch track into notes: a note runs over voiced frames (bridging unvoiced gaps up
     to `gap` s) and ends at the next onset, or where the pitch moves more than `jump` semitones
-    from the note's median and stays there for `hold` s. Notes under `min_dur` s are dropped."""
+    from the note's median and stays there for `hold` s. Notes under `min_dur` s are dropped.
+
+    For isolated monophonic stems, ``sustain_unvoiced`` keeps a known pitch through
+    unreliable frames while the signal remains above ``floor_db`` below its peak.
+    An onset or silence resets it; voiced frames near an onset also anchor its attack.
+    Contours retain only measured pitches, never the sustained guesses. This option
+    assumes audible unvoiced tails belong to the preceding note; do not use on a mix.
+    """
     t = track.t
     hop = float(t[1] - t[0]) if len(t) > 1 else 0.01
     midi = 69.0 + 12.0 * np.log2(track.f0 / a4)
     voiced = np.isfinite(midi)
+    cuts = set(np.searchsorted(t, sorted(onsets)))
+    measured = midi.copy()
+    if sustain_unvoiced and len(t):
+        audible = track.level_db > max(float(track.level_db.max()) - floor_db, -190.0)
+        last = np.nan
+        attack_frames = max(1, int(round(0.1 / hop)))
+        for i in range(len(t)):
+            if i in cuts or not audible[i]:
+                last = np.nan
+            if not audible[i]:
+                midi[i] = np.nan
+            elif voiced[i]:
+                last = midi[i]
+            elif np.isfinite(last):
+                midi[i] = last
+            elif i in cuts:
+                end = min(i + attack_frames, len(t), next((c for c in sorted(cuts) if c > i), len(t)))
+                candidates = measured[i:end][audible[i:end] & np.isfinite(measured[i:end])]
+                if len(candidates):
+                    midi[i] = last = float(np.median(candidates))
+        voiced = np.isfinite(midi)
     bridge = int(round(gap / hop))
     run = voiced.copy()
     i = 0
@@ -171,7 +206,6 @@ def notes_from_track(
             i = j
         else:
             i += 1
-    cuts = set(np.searchsorted(t, list(onsets)))
     hold_n = max(1, int(round(hold / hop)))
     notes: list[TrackedNote] = []
     k = 0
@@ -193,9 +227,42 @@ def notes_from_track(
         pitches = midi[seg]
         ok = np.isfinite(pitches)
         if ok.sum() and (k - start) * hop >= min_dur:
-            notes.append(TrackedNote(float(t[start]), float(t[k - 1] + hop), float(np.median(pitches[ok])),
-                                     float(np.max(track.level_db[seg])), t[seg][ok], pitches[ok]))
+            observed = np.isfinite(measured[seg])
+            if observed.any():
+                notes.append(TrackedNote(float(t[start]), float(t[k - 1] + hop), float(np.median(pitches[ok])),
+                                         float(np.max(track.level_db[seg])), t[seg][observed], measured[seg][observed]))
     return notes
+
+
+def tracked_music(notes: Sequence[TrackedNote], *, duration: float | None = None, contours: bool = False) -> Music:
+    """Convert measured notes to Music in seconds (play at BPM 60).
+
+    Relative levels become velocities; fractional MIDI tuning is retained. Optional
+    measured pitch contours are sampled every 20 ms, encoded as ``pitch_points``
+    offsets, and interpreted by the renderer without inventing vibrato or bends.
+    These represent sounding spans, including tails; a long instrument release can
+    therefore double the tail unless shortened by the caller.
+    """
+    from notes.lang.music import Note, place
+
+    typical = float(np.percentile([n.level_db for n in notes], 75)) if notes else 0.0
+    items = []
+    for note in notes:
+        if note.end <= note.start or note.start < 0:
+            raise ValueError("notes need nonnegative starts and positive durations")
+        params = ()
+        if contours and len(note.contour_t):
+            times = np.arange(0, note.end - note.start, 0.02)
+            if not len(times) or times[-1] < note.end - note.start:
+                times = np.r_[times, note.end - note.start]
+            offsets = np.interp(times + note.start, note.contour_t, note.contour) - note.pitch
+            points = tuple((float(t), float(p)) for t, p in zip(times, offsets, strict=True))
+            params = (("pitch_points", points),)
+        velocity = float(np.clip(0.8 * 10 ** ((note.level_db - typical) / 30), 0.05, 1.0))
+        start = Fraction(float(note.start)).limit_denominator(1000000)
+        length = Fraction(float(note.end - note.start)).limit_denominator(1000000)
+        items.append((start, Note(note.pitch, length, velocity, params)))
+    return place(items, None if duration is None else Fraction(float(duration)).limit_denominator(1000000))
 
 
 def drum_profile(x: np.ndarray, sr: int, t: float, after: float = 0.08, before: float = 0.08) -> np.ndarray:

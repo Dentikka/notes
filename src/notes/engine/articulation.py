@@ -6,6 +6,7 @@ notation ``~`` and ``^n``):
     vibrato  depth in semitones (peak)          vibrato_rate Hz (5.5)   vibrato_delay s (0.2)
     bend     semitones the bend reaches         bend_start s (0.0)      bend_time s (0.15)
     slide    semitones away the note glides in from at its onset        slide_time s (0.08)
+    pitch_points  [(seconds from onset, semitone offset), ...], linearly interpolated
 
 `vibrato_shape` chooses how the pitch moves: 'sine' swings evenly around the note (voice,
 violin, synth); 'push' only ever raises it, the way a guitarist's finger pushes the string
@@ -57,10 +58,17 @@ def pitch_curve(
     vibrato = float(params.get("vibrato", 0.0))
     bend = float(params.get("bend", 0.0))
     slide = float(params.get("slide", 0.0))
-    if not (vibrato or bend or slide):
+    points = params.get("pitch_points")
+    if not (vibrato or bend or slide) and points is None:
         return None
     t = np.arange(n) / sr
     curve = np.zeros(n)
+    if points is not None:
+        points = np.asarray(points, dtype=float)
+        if (points.ndim != 2 or points.shape[1] != 2 or len(points) < 1
+                or not np.isfinite(points).all() or points[0, 0] < 0 or np.any(np.diff(points[:, 0]) <= 0)):
+            raise ValueError("pitch_points must be finite (nonnegative increasing seconds, semitones) pairs")
+        curve += np.interp(t, points[:, 0], points[:, 1])
     if slide:
         curve += slide * (1.0 - _smoothstep(t / max(float(params.get("slide_time", 0.08)), 1e-3)))
     if bend:
