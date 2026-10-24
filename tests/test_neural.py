@@ -101,8 +101,11 @@ def test_cli_onset_decoder_records_settings_and_can_disable_contours(tmp_path, m
     out = tmp_path / "result"
     assert main(["transcribe", str(tmp_path / "ref.wav"), "-o", str(out), "--method", "basic-pitch",
                  "--model-path", str(tmp_path / "model.onnx"), "--instrument", "electric",
-                 "--low", "64", "--high", "64", "--note-decoder", "onsets", "--no-contours"]) == 0
+                 "--low", "64", "--high", "64", "--note-decoder", "onsets", "--no-contours",
+                 "--velocity-source", "audio"]) == 0
     data = json.loads((out / "notes.json").read_text())
     assert len(data["notes"]) == 1 and data["notes"][0]["start"] == pytest.approx(0.05)
     assert data["note_decoder"] == "onsets" and data["onset_threshold"] == 0.7
     assert not data["contours_enabled"] and data["status"] == "unverified"
+    assert data["velocity_source"] == "audio" and data["velocity_normalization"] == "peak"
+    assert data["notes"][0]["level_db"] != data["notes"][0]["tracker_level_db"]

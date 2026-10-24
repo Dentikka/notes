@@ -266,6 +266,7 @@ def _transcribe(args: argparse.Namespace) -> int:
     from notes.ears.polyphonic import instrument_templates, notes_from_templates, template_track
     from notes.ears.transcribe import (
         TrackedNote,
+        measure_note_levels,
         melody_track,
         notes_from_track,
         onsets_from_track,
@@ -320,6 +321,9 @@ def _transcribe(args: argparse.Namespace) -> int:
             onsets = onsets_from_track(track)
         notes = notes_from_track(track, onsets, a4=args.a4, min_dur=args.min_duration,
                                  sustain_unvoiced=args.method == "mono", jump=0.7 if args.method == "mono" else 3.0)
+    tracker_levels = [float(note.level_db) for note in notes]
+    if args.velocity_source == "audio":
+        notes = measure_note_levels(mono, ANALYSIS_RATE, notes, a4=args.a4)
     reference_check = None
     if args.reference_notes:
         from notes.ears.note_comparison import compare_notes
@@ -338,6 +342,8 @@ def _transcribe(args: argparse.Namespace) -> int:
                 "onset_threshold": threshold if args.method == "basic-pitch" else args.onset_threshold,
                 "frame_threshold": args.frame_threshold, "release_threshold": args.release_threshold,
                 "harmonic_ratio": args.harmonic_ratio,
+                "velocity_source": args.velocity_source,
+                "velocity_normalization": "peak" if args.velocity_source == "audio" else "percentile",
                 "contours_enabled": not args.no_contours and args.method in ("melody", "basic-pitch"),
                 "start": start, "end": end, "method": args.method, "channel": args.channel,
                 "a4": args.a4, "instrument": args.instrument, "settings": params,
@@ -345,12 +351,14 @@ def _transcribe(args: argparse.Namespace) -> int:
                 "sparsity": args.sparsity, "relative_db": args.relative_db, "max_polyphony": args.max_polyphony,
                 "git_revision": _git_revision(), "residual": residual,
                 "notes": [{"start": n.start, "end": n.end, "pitch": n.pitch, "level_db": n.level_db,
-                           "contour_t": n.contour_t.tolist(), "contour": n.contour.tolist()} for n in notes]})
+                           "tracker_level_db": raw, "contour_t": n.contour_t.tolist(), "contour": n.contour.tolist()}
+                          for n, raw in zip(notes, tracker_levels, strict=True)]})
     if not notes:
         print(f"No notes found; wrote {out / 'notes.json'}")
         return 1
     music = tracked_music(notes, duration=len(mono) / ANALYSIS_RATE,
-                          contours=not args.no_contours and args.method in ("melody", "basic-pitch"))
+                          contours=not args.no_contours and args.method in ("melody", "basic-pitch"),
+                          peak_normalize=args.velocity_source == "audio")
     song = Song(Track("transcribed", instrument)(music), bpm=60, a4=args.a4, loudness=None, seed=17)
     score = song.compile()
     score.to_json(out / "transcribed.ir.json")
@@ -438,6 +446,8 @@ def main(argv: list[str] | None = None) -> int:
                        help="extend accepted onset-decoded notes at a lower threshold")
     trans.add_argument("--harmonic-ratio", type=float, help="optional pruning of weaker coincident model harmonics")
     trans.add_argument("--no-contours", action="store_true", help="render fixed pitches rather than estimated bends")
+    trans.add_argument("--velocity-source", choices=("tracker", "audio"), default="tracker",
+                       help="note dynamics: legacy tracker levels or measured spectral increases in the recording")
     trans.add_argument("--reference-notes", help="explicit reference note JSON for onset/pitch/offset scoring")
     trans.add_argument("--melody-onsets", choices=("mix", "pitch"), default="mix",
                        help="melody re-picks: legacy mix attacks, or experimental pitch-energy attacks")
