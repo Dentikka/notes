@@ -25,9 +25,12 @@ class Piano(Instrument):
     sustain is fundamental T60 at A3. Per-note pedal=True lets the string ring
     after key release; it is a fixed per-note pedal, not a continuous MIDI pedal.
     brightness controls hammer hardness, detune is unison spread in cents.
+    model="soundboard" enables hammer-position coloration and two-stage decay;
+    legacy preserves the original renderer.
     """
 
     program: int | None = 0
+    model: str = "legacy"
     sustain: float = 8.0
     brightness: float = 0.65
     detune: float = 1.4
@@ -37,6 +40,8 @@ class Piano(Instrument):
     level: float = 0.45
 
     def __post_init__(self) -> None:
+        if self.model not in ("legacy", "soundboard"):
+            raise ValueError("model must be legacy or soundboard")
         _positive(sustain=self.sustain, release=self.release)
         for name in ("brightness", "detune", "stiffness", "hammer", "level"):
             value = getattr(self, name)
@@ -47,6 +52,8 @@ class Piano(Instrument):
         return max(self.release, self.sustain)
 
     def voice(self, v: Voice, ctx: RenderContext, rng: np.random.Generator) -> np.ndarray:
+        if self.model == "soundboard":
+            return self._soundboard(v, ctx, rng)
         pedal = bool(v.params.get("pedal", False))
         tail = self.release_time() if pedal else self.release
         n = ctx.samples(v.dur + tail)
@@ -72,6 +79,55 @@ class Piano(Instrument):
         if n:
             y[-min(n, ctx.samples(0.01)):] *= np.linspace(1, 0, min(n, ctx.samples(0.01)))
         return self.level * vel_gain(v.vel) * y
+
+
+    def _soundboard(self, v: Voice, ctx: RenderContext, rng: np.random.Generator) -> np.ndarray:
+        """Designed modal variant: hammer-position comb, two-stage partial decay,
+        slightly unequal unison strings and a resonant bridge response.
+        """
+        pedal = bool(v.params.get("pedal", False))
+        tail = self.release_time() if pedal else self.release
+        n = ctx.samples(v.dur + tail)
+        t = np.arange(n) / ctx.sr
+        y = np.zeros(n)
+        hardness = max(0.08, self.brightness * (0.2 + 0.8 * v.vel))
+        strings = 1 if v.pitch < 33 else (2 if v.pitch < 52 else 3)
+        offsets = np.linspace(-self.detune, self.detune, strings) if strings > 1 else [0.0]
+        stiffness = self.stiffness * (1 + 0.6 * abs(v.pitch - 60) / 24)
+        for index, cents in enumerate(offsets):
+            f0 = v.freq * 2 ** (cents / 1200)
+            # A few samples between strings, rather than phase-identical oscillators.
+            lag = index * 0.00013
+            age = np.maximum(t - lag, 0)
+            for k in range(1, min(97, int(ctx.sr * 0.46 / f0) + 1)):
+                hz = f0 * k * np.sqrt((1 + stiffness * k * k) / (1 + stiffness))
+                if hz >= ctx.sr * 0.46:
+                    break
+                # Fixed hammer position creates uneven partial strengths and missing modes.
+                strike = np.sin(np.pi * k * 0.137) / np.sin(np.pi * 0.137)
+                felt = np.exp(-(hz / (1600 + 6500 * hardness)) ** 1.4)
+                amplitude = strike * felt / k ** 0.72
+                amplitude *= 1 + 0.06 * np.sin(k * 2.17 + index)
+                # Upper partials persist instead of collapsing to the fundamental.
+                t60 = self.sustain * (220 / v.freq) ** 0.28 / (1 + 0.055 * (k - 1) ** 1.15)
+                prompt = np.exp(-np.log(1000) * age / (0.24 * t60))
+                after = np.exp(-np.log(1000) * age / t60)
+                envelope = (0.65 * prompt + 0.35 * after) * (1 - np.exp(-age / 0.0018))
+                y += amplitude * envelope * np.sin(2 * np.pi * hz * age) / strings
+        # Short fixed bridge resonances colour the entire string, including its attack.
+        dry = y.copy()
+        for hz, q, gain in ((180, 1.0, 1.4), (520, 1.3, -2.0), (2600, 0.8, 2.5)):
+            if hz < ctx.sr * 0.45:
+                y = filt(y, "peak", hz, ctx.sr, q, gain)
+        y = 0.85 * y + 0.15 * dry
+        noise = filt(rng.normal(size=n), "lowpass", min(5500, ctx.sr * 0.4), ctx.sr, 0.7)
+        y += self.hammer * noise * np.exp(-t / 0.012) * (1 - np.exp(-t / 0.001))
+        if not pedal:
+            y *= adsr(ctx.samples(v.dur), n, ctx.sr, 0.001, 0.01, 1, self.release)
+        count = min(n, ctx.samples(0.01))
+        if count:
+            y[-count:] *= np.linspace(1, 0, count)
+        return self.level * 0.55 * vel_gain(v.vel) * y
 
 
 @register_instrument("bowed_string")

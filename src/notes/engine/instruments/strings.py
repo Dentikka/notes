@@ -150,6 +150,8 @@ class ElectricGuitar(Instrument):
     (`fret_scale`) and the pick and pickup positions are taken along the shortened string;
     otherwise they are the same fractions for every note.
 
+    ``amplified=False`` bypasses the amp and cabinet for a direct pickup signal.
+
     Per-note parameters: ``palm_mute=True`` for chugs that ring `mute_decay` seconds (T60)
     with the pluck softened to `mute_brightness`; ``legato=True`` for a note sounded by the
     fretting hand (hammer-on, pull-off, the end of a slide): no pick click, a softer and
@@ -161,6 +163,7 @@ class ElectricGuitar(Instrument):
     drive: float = 0.5
     tone: float = 0.5
     cabinet: str = "greenback"
+    amplified: bool = True
     pickup: str = "bridge"
     sustain: float = 9.0
     treble_decay: float = 2.5
@@ -190,6 +193,8 @@ class ElectricGuitar(Instrument):
 
     def inserts(self) -> tuple[Effect, ...]:
         freq, q = _PICKUP_RESONANCE[self.pickup]
+        if not self.amplified:
+            return (Filter(kind="lowpass", cutoff=freq, q=q),)
         return (
             Filter(kind="lowpass", cutoff=freq, q=q),
             GuitarAmp(drive=self.drive, tone=self.tone),

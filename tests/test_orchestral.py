@@ -9,7 +9,7 @@ def render(instrument, vel=0.8, params=None, sr=22050):
                             RenderContext(sr, 60), np.random.default_rng(7))
 
 
-@pytest.mark.parametrize("instrument", [Piano(), Violin(vibrato=0), Cello(vibrato=0)])
+@pytest.mark.parametrize("instrument", [Piano(), Piano(model="soundboard"), Violin(vibrato=0), Cello(vibrato=0)])
 def test_tuning_roundtrip_and_dynamics(instrument):
     assert build_instrument(instrument.to_spec()) == instrument
     y = render(instrument)
@@ -49,3 +49,17 @@ def test_invalid_parameters(kwargs):
     for cls in (Piano, Violin, Cello):
         with pytest.raises(ValueError):
             cls(**kwargs)
+
+
+def test_soundboard_retains_upper_partials_after_attack():
+    def upper_ratio(model):
+        y = render(Piano(model=model), params={"pedal": True})[6615:13230]
+        spectrum = abs(np.fft.rfft(y * np.hanning(len(y)))) ** 2
+        freq = np.fft.rfftfreq(len(y), 1 / 22050)
+        return spectrum[(freq > 600) & (freq < 4000)].sum() / spectrum[(freq > 180) & (freq < 260)].sum()
+    assert upper_ratio("soundboard") > 2 * upper_ratio("legacy")
+
+
+def test_soundboard_zero_velocity_and_low_sample_rate():
+    assert not np.any(render(Piano(model="soundboard"), vel=0))
+    assert np.isfinite(render(Piano(model="soundboard"), sr=8000)).all()

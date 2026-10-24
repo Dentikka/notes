@@ -16,12 +16,14 @@ from notes import (
 )
 
 instruments = {
-    "piano": Piano(),
+    "piano": Piano(model="soundboard"),
     "violin": Violin(),
     "cello": Cello(),
-    "clean-guitar": ElectricGuitar(drive=0.06, pickup="neck", tone=0.3),
+    "clean-guitar": ElectricGuitar(amplified=False, pickup="middle", brightness=0.9,
+                                    treble_decay=5, pick_position=0.12, velocity_brightness=0.4),
     "rock-guitar": ElectricGuitar(drive=0.65),
-    "acoustic-guitar": AcousticGuitar(),
+    "acoustic-guitar": AcousticGuitar(brightness=1, treble_decay=5, pick_position=0.12,
+                                     prompt_decay=0.45, velocity_brightness=0.4),
     "bass": BassGuitar(),
     "drums": RockKit(),
 }

@@ -27,6 +27,8 @@ _LOWEST_UNISON = 59  # B3: a note without a string below it is on an octave cour
 class AcousticGuitar(Instrument):
     """Steel strings (`notes.engine.string_model`) through the guitar's body (`Body`), miked.
 
+    `prompt_decay` optionally shortens the picked polarization relative to sustain;
+    `velocity_brightness` couples picking strength to hardness (0 preserves old behaviour).
     `sustain` is the T60 (s) of the fundamental at A3, `treble_decay` that of partials near
     4 kHz, `brightness` the pick's hardness, `pick_position` where it strikes (fraction of the
     string from the bridge; over the sound hole ~0.25); `body` the share of the sound that is
@@ -45,6 +47,8 @@ class AcousticGuitar(Instrument):
     pick_position: float = 0.18
     stiffness: float = 4e-5
     polarization: float = 0.3
+    prompt_decay: float = 0.0
+    velocity_brightness: float = 0.0
     body: float = 1.0
     body_size: float = 1.0
     diffuse: float = 0.8
@@ -66,7 +70,9 @@ class AcousticGuitar(Instrument):
         def render(m: int) -> np.ndarray:
             return steel_string(freq, m, sr, rng, t60=_t60(self.sustain, freq), t60_high=self.treble_decay,
                                 pick=self.pick_position, hardness=hardness, stiffness=self.stiffness,
-                                second=self.polarization)
+                                second=self.polarization,
+                                prompt_t60=(self.prompt_decay * _t60(self.sustain, freq)
+                                            if self.prompt_decay > 0 else None))
 
         return render(n) if curve is None else variable_rate_read(render, curve)
 
@@ -76,6 +82,7 @@ class AcousticGuitar(Instrument):
         gate = ctx.samples(v.dur)
         n = gate + ctx.samples(self.release)
         hardness = self.brightness * (_LEGATO_SOFTNESS if legato else 1.0)
+        hardness *= 1.0 - self.velocity_brightness * (1.0 - v.vel)
         curve = pitch_curve(v.params, n, sr, vibrato_shape="push", rng=rng)
         y = self._string(v.freq, n, sr, hardness, curve, rng)
         if self.twelve:

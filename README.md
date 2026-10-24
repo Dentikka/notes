@@ -238,3 +238,10 @@ instrument libraries or a claim of reference matching.
 Run `notes render examples/instrument_palette.py -o palette --spectrogram` for a
 palette including electric/acoustic guitars, bass and rock drums. The example's
 `build_song(name)` also exposes each instrument separately.
+
+`Piano(model="soundboard")` adds a hammer-position comb and two-stage partial
+losses with a longer upper-harmonic tail; the default `model="legacy"` remains
+available unchanged. `ElectricGuitar(amplified=False)` exposes the direct pickup
+signal without amp/cabinet filtering. `AcousticGuitar(prompt_decay=0.45,
+velocity_brightness=0.4)` enables two-stage string decay and velocity-dependent
+picking hardness. The instrument palette demonstrates these opt-in variants.
