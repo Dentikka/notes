@@ -292,12 +292,20 @@ def _transcribe(args: argparse.Namespace) -> int:
     out.mkdir(parents=True, exist_ok=True)
     residual = None
     if args.method == "basic-pitch":
-        from notes.ears.neural import basic_pitch_track, notes_from_probabilities
+        from notes.ears.neural import basic_pitch_track, notes_from_onsets, notes_from_probabilities
 
         if not args.model_path:
             raise ValueError("basic-pitch requires --model-path to a local official nmp.onnx")
         track = basic_pitch_track(mono, ANALYSIS_RATE, args.model_path, a4=args.a4)
-        notes = notes_from_probabilities(track, low=args.low, high=args.high, min_dur=args.min_duration)
+        threshold = args.onset_threshold if args.onset_threshold is not None else (
+            0.7 if args.note_decoder == "onsets" else 0.5)
+        options = {"low": args.low, "high": args.high, "min_dur": args.min_duration,
+                   "onset_threshold": threshold, "frame_threshold": args.frame_threshold}
+        if args.note_decoder == "onsets":
+            notes = notes_from_onsets(track, **options, release_threshold=args.release_threshold,
+                                      harmonic_ratio=args.harmonic_ratio)
+        else:
+            notes = notes_from_probabilities(track, **options)
     elif args.method == "templates":
         templates = instrument_templates(instrument, range(args.low, args.high + 1), a4=args.a4)
         track = template_track(mono, ANALYSIS_RATE, templates, n_fft=8192, sparsity=args.sparsity)
@@ -326,6 +334,11 @@ def _transcribe(args: argparse.Namespace) -> int:
                 "status": "reference-scored" if reference_check is not None else "unverified",
                 "reference_check": reference_check, "model_sha256": model_hash,
                 "melody_onsets": args.melody_onsets,
+                "note_decoder": args.note_decoder,
+                "onset_threshold": threshold if args.method == "basic-pitch" else args.onset_threshold,
+                "frame_threshold": args.frame_threshold, "release_threshold": args.release_threshold,
+                "harmonic_ratio": args.harmonic_ratio,
+                "contours_enabled": not args.no_contours and args.method in ("melody", "basic-pitch"),
                 "start": start, "end": end, "method": args.method, "channel": args.channel,
                 "a4": args.a4, "instrument": args.instrument, "settings": params,
                 "low": args.low, "high": args.high, "min_duration": args.min_duration,
@@ -337,7 +350,7 @@ def _transcribe(args: argparse.Namespace) -> int:
         print(f"No notes found; wrote {out / 'notes.json'}")
         return 1
     music = tracked_music(notes, duration=len(mono) / ANALYSIS_RATE,
-                          contours=args.method in ("melody", "basic-pitch"))
+                          contours=not args.no_contours and args.method in ("melody", "basic-pitch"))
     song = Song(Track("transcribed", instrument)(music), bpm=60, a4=args.a4, loudness=None, seed=17)
     score = song.compile()
     score.to_json(out / "transcribed.ir.json")
@@ -417,6 +430,14 @@ def main(argv: list[str] | None = None) -> int:
     trans.add_argument("-o", "--out", required=True)
     trans.add_argument("--method", choices=("mono", "melody", "templates", "basic-pitch"), default="mono")
     trans.add_argument("--model-path", help="local Basic Pitch nmp.onnx (requires notes[transcription])")
+    trans.add_argument("--note-decoder", choices=("frames", "onsets"), default="frames",
+                       help="Basic Pitch decoder: legacy frame runs or pitch-specific attacks")
+    trans.add_argument("--onset-threshold", type=float, help="model onset threshold (frames: 0.5, onsets: 0.7)")
+    trans.add_argument("--frame-threshold", type=float, default=0.3)
+    trans.add_argument("--release-threshold", type=float,
+                       help="extend accepted onset-decoded notes at a lower threshold")
+    trans.add_argument("--harmonic-ratio", type=float, help="optional pruning of weaker coincident model harmonics")
+    trans.add_argument("--no-contours", action="store_true", help="render fixed pitches rather than estimated bends")
     trans.add_argument("--reference-notes", help="explicit reference note JSON for onset/pitch/offset scoring")
     trans.add_argument("--melody-onsets", choices=("mix", "pitch"), default="mix",
                        help="melody re-picks: legacy mix attacks, or experimental pitch-energy attacks")
