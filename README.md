@@ -148,6 +148,17 @@ with no extras (legacy: 5 matches among 11). These are narrow checks against an 
 manual part, not a general accuracy benchmark; note endings and distorted guitars
 remain unresolved. Legacy `--note-decoder frames` remains the default for compatibility.
 
+`--velocity-source audio` measures dynamics from the increase in harmonic energy at
+each detected attack. Model confidence is not loudness: the legacy tracker-level
+mapping can flatten the accents even with correct note timestamps. Coincident higher
+notes are excluded from a lower note's shared partials when measuring its energy.
+Measured dynamics use peak normalization, keeping relative levels without clipping
+strong accents at a percentile reference. Original tracker levels are retained in
+`notes.json`. Legacy `--velocity-source tracker` remains available and is the default.
+Python: `measure_note_levels(audio, sr, notes, a4)` followed by
+`tracked_music(notes, peak_normalize=True)`. This estimates pluck energy, not exact
+instrument velocity; timing, articulation and note endings still need separate checks.
+
 Python APIs: `template_track`, `notes_from_templates`, `instrument_templates` in
 `notes.ears.polyphonic`; `notes_from_track(..., sustain_unvoiced=True)` and
 `tracked_music(notes, contours=True)` in `notes.ears.transcribe`. The latter returns

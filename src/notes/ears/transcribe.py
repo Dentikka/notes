@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from fractions import Fraction
 from typing import TYPE_CHECKING
 
@@ -35,6 +35,7 @@ __all__ = [
     "drum_hits",
     "drum_profile",
     "melody_track",
+    "measure_note_levels",
     "notes_from_track",
     "onsets_from_track",
     "pitch_track",
@@ -276,10 +277,69 @@ def notes_from_track(
     return notes
 
 
-def tracked_music(notes: Sequence[TrackedNote], *, duration: float | None = None, contours: bool = False) -> Music:
+def measure_note_levels(
+    x: np.ndarray, sr: int, notes: Sequence[TrackedNote], a4: float = 440.0, *, harmonics: int = 4,
+) -> list[TrackedNote]:
+    """Estimate relative pluck levels from the recording, not model probabilities.
+
+    Measure the positive spectral-power increase after each known attack over a
+    preceding window. Summed harmonics tolerate a weak fundamental. For a coincident
+    higher note, its harmonics are excluded from the lower note's measurement so an
+    octave's shared partials do not make a faint bass string appear loud.
+
+    Timing and pitch are held fixed. This is an energy estimate, not calibrated MIDI
+    velocity; overlapping partials and changing effects can still bias the result.
+    """
+    x = np.asarray(x, dtype=float)
+    if x.ndim != 1 or not len(x) or not np.isfinite(x).all() or sr <= 0 or a4 <= 0 or harmonics < 1:
+        raise ValueError("need finite mono audio, positive sample rate/tuning and harmonics")
+    size = max(64, round(sr * 4096 / 44100))
+    hop = max(1, round(sr * 512 / 44100))
+    freqs = np.fft.rfftfreq(size, 1 / sr)
+    window = np.hanning(size)
+
+    def profile(start: float) -> np.ndarray:
+        frames = []
+        for position in range(round(start * sr), round((start + 0.11) * sr), hop):
+            frame = np.zeros(size)
+            lo, hi = max(position, 0), min(position + size, len(x))
+            if hi > lo:
+                frame[lo - position:hi - position] = x[lo:hi]
+            frames.append(np.abs(np.fft.rfft(frame * window)) ** 2 / size**2)
+        return np.mean(frames, axis=0)
+
+    frequencies = a4 * 2 ** ((np.array([n.pitch for n in notes]) - 69) / 12)
+    result = []
+    for i, note in enumerate(notes):
+        if note.start < 0 or note.end <= note.start:
+            raise ValueError("notes need nonnegative starts and positive durations")
+        # The preceding windows end before the attack, including for an attack at zero.
+        before = profile(note.start - 0.01 - size / sr - 0.11)
+        after = profile(note.start + 0.04)
+        growth = np.maximum(after - before, 0)
+        higher = [frequencies[j] for j, other in enumerate(notes)
+                  if other.pitch > note.pitch and abs(other.start - note.start) <= 0.04]
+        energy = 0.0
+        for harmonic in range(1, harmonics + 1):
+            centre = frequencies[i] * harmonic
+            if any(round(centre / high) >= 1 and abs(centre / high - round(centre / high)) < 0.025
+                   for high in higher):
+                continue
+            width = max(centre * (2 ** (40 / 1200) - 1), 1.5 * freqs[1])
+            energy += float(growth[np.abs(freqs - centre) <= width].sum())
+        result.append(replace(note, level_db=float(10 * np.log10(max(energy, 1e-20)))))
+    return result
+
+
+def tracked_music(
+    notes: Sequence[TrackedNote], *, duration: float | None = None, contours: bool = False,
+    peak_normalize: bool = False,
+) -> Music:
     """Convert measured notes to Music in seconds (play at BPM 60).
 
     Relative levels become velocities; fractional MIDI tuning is retained. Optional
+    ``peak_normalize`` maps the loudest note to velocity 1 without clipping accents
+    above a percentile reference; use this with physically measured levels.
     measured pitch contours are sampled every 20 ms, encoded as ``pitch_points``
     offsets, and interpreted by the renderer without inventing vibrato or bends.
     These represent sounding spans, including tails; a long instrument release can
@@ -287,7 +347,7 @@ def tracked_music(notes: Sequence[TrackedNote], *, duration: float | None = None
     """
     from notes.lang.music import Note, place
 
-    typical = float(np.percentile([n.level_db for n in notes], 75)) if notes else 0.0
+    typical = float(np.percentile([n.level_db for n in notes], 100 if peak_normalize else 75)) if notes else 0.0
     items = []
     for note in notes:
         if note.end <= note.start or note.start < 0:
@@ -300,7 +360,8 @@ def tracked_music(notes: Sequence[TrackedNote], *, duration: float | None = None
             offsets = np.interp(times + note.start, note.contour_t, note.contour) - note.pitch
             points = tuple((float(t), float(p)) for t, p in zip(times, offsets, strict=True))
             params = (("pitch_points", points),)
-        velocity = float(np.clip(0.8 * 10 ** ((note.level_db - typical) / 30), 0.05, 1.0))
+        velocity = float(np.clip((1.0 if peak_normalize else 0.8) * 10 ** ((note.level_db - typical) / 30),
+                                 0.05, 1.0)) if note.level_db > -190 else 0.0
         start = Fraction(float(note.start)).limit_denominator(1000000)
         length = Fraction(float(note.end - note.start)).limit_denominator(1000000)
         items.append((start, Note(note.pitch, length, velocity, params)))
