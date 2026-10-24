@@ -5,6 +5,9 @@ composition is a short Python script. The library compiles it into an exact, ser
 intermediate representation (IR) and renders that to audio with a built-in DSP engine: no
 samples, no external synthesizers, bit-reproducible output.
 
+Instrument synthesis must remain fully procedural: no recordings, multisamples,
+or recorded impulse responses as sound sources. Reference audio is for evaluation only.
+
 ```python
 from notes import *
 
@@ -244,4 +247,6 @@ losses with a longer upper-harmonic tail; the default `model="legacy"` remains
 available unchanged. `ElectricGuitar(amplified=False)` exposes the direct pickup
 signal without amp/cabinet filtering. `AcousticGuitar(prompt_decay=0.45,
 velocity_brightness=0.4)` enables two-stage string decay and velocity-dependent
-picking hardness. The instrument palette demonstrates these opt-in variants.
+picking hardness. These variants are experimental: listening rejected the brighter piano and guitar
+settings. The instrument palette uses the baseline settings; neither piano nor clean
+guitars have established realism.
