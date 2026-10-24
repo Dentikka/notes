@@ -105,6 +105,7 @@ def test_transcribe_cli_writes_notes_midi_reconstruction_and_comparison(tmp_path
     out = tmp_path / "transcription"
     assert main(["transcribe", str(reference), "-o", str(out), "--low", "28", "--high", "55"]) == 0
     data = json.loads((out / "notes.json").read_text(encoding="utf-8"))
+    assert data["status"] == "unverified" and data["reference_check"] is None
     assert [round(n["pitch"]) for n in data["notes"]] == [33, 38]
     for name in ("transcribed.ir.json", "transcribed.mid", "transcribed.wav", "transcribed.png",
                  "transcribed.spec.png", "comparison.json", "comparison.png", "transcribed.ab.wav"):

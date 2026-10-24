@@ -264,7 +264,14 @@ def _transcribe(args: argparse.Namespace) -> int:
     from notes import AcousticGuitar, BassGuitar, ElectricGuitar
     from notes.ears.compare import ANALYSIS_RATE, _onset_strength, _onsets, compare, listening, load
     from notes.ears.polyphonic import instrument_templates, notes_from_templates, template_track
-    from notes.ears.transcribe import melody_track, notes_from_track, pitch_track, tracked_music
+    from notes.ears.transcribe import (
+        TrackedNote,
+        melody_track,
+        notes_from_track,
+        onsets_from_track,
+        pitch_track,
+        tracked_music,
+    )
     from notes.engine.audio import write_wav
     from notes.lang.song import Track
     from notes.viz import comparison, pianoroll, spectrogram
@@ -284,7 +291,14 @@ def _transcribe(args: argparse.Namespace) -> int:
     out = Path(args.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
     residual = None
-    if args.method == "templates":
+    if args.method == "basic-pitch":
+        from notes.ears.neural import basic_pitch_track, notes_from_probabilities
+
+        if not args.model_path:
+            raise ValueError("basic-pitch requires --model-path to a local official nmp.onnx")
+        track = basic_pitch_track(mono, ANALYSIS_RATE, args.model_path, a4=args.a4)
+        notes = notes_from_probabilities(track, low=args.low, high=args.high, min_dur=args.min_duration)
+    elif args.method == "templates":
         templates = instrument_templates(instrument, range(args.low, args.high + 1), a4=args.a4)
         track = template_track(mono, ANALYSIS_RATE, templates, n_fft=8192, sparsity=args.sparsity)
         notes = notes_from_templates(track, onsets, min_dur=args.min_duration,
@@ -293,10 +307,25 @@ def _transcribe(args: argparse.Namespace) -> int:
     else:
         fmin, fmax = args.a4 * 2 ** ((args.low - 69) / 12), args.a4 * 2 ** ((args.high - 69) / 12)
         track = (pitch_track(mono, ANALYSIS_RATE, fmin, fmax) if args.method == "mono"
-                 else melody_track(mono, ANALYSIS_RATE, fmin, fmax))
+                 else melody_track(mono, ANALYSIS_RATE, fmin, fmax, pitch_level=args.melody_onsets == "pitch"))
+        if args.method == "melody" and args.melody_onsets == "pitch":
+            onsets = onsets_from_track(track)
         notes = notes_from_track(track, onsets, a4=args.a4, min_dur=args.min_duration,
                                  sustain_unvoiced=args.method == "mono", jump=0.7 if args.method == "mono" else 3.0)
+    reference_check = None
+    if args.reference_notes:
+        from notes.ears.note_comparison import compare_notes
+
+        gold = json.loads(Path(args.reference_notes).read_text(encoding="utf-8"))
+        gold = gold["notes"] if isinstance(gold, dict) else gold
+        gold_notes = [TrackedNote(n["start"], n["end"], n["pitch"], 0, np.array([]), np.array([])) for n in gold]
+        reference_check = compare_notes(gold_notes, notes)
+    model_hash = (hashlib.sha256(Path(args.model_path).read_bytes()).hexdigest()
+                  if args.method == "basic-pitch" else None)
     _write_json(out / "notes.json", {"reference": str(Path(args.reference).resolve()),
+                "status": "reference-scored" if reference_check is not None else "unverified",
+                "reference_check": reference_check, "model_sha256": model_hash,
+                "melody_onsets": args.melody_onsets,
                 "start": start, "end": end, "method": args.method, "channel": args.channel,
                 "a4": args.a4, "instrument": args.instrument, "settings": params,
                 "low": args.low, "high": args.high, "min_duration": args.min_duration,
@@ -307,7 +336,8 @@ def _transcribe(args: argparse.Namespace) -> int:
     if not notes:
         print(f"No notes found; wrote {out / 'notes.json'}")
         return 1
-    music = tracked_music(notes, duration=len(mono) / ANALYSIS_RATE, contours=args.method == "melody")
+    music = tracked_music(notes, duration=len(mono) / ANALYSIS_RATE,
+                          contours=args.method in ("melody", "basic-pitch"))
     song = Song(Track("transcribed", instrument)(music), bpm=60, a4=args.a4, loudness=None, seed=17)
     score = song.compile()
     score.to_json(out / "transcribed.ir.json")
@@ -322,7 +352,8 @@ def _transcribe(args: argparse.Namespace) -> int:
     ab, toggle = listening(comp)
     write_wav(out / "transcribed.ab.wav", ab, ANALYSIS_RATE)
     write_wav(out / "transcribed.toggle.wav", toggle, ANALYSIS_RATE)
-    print(f"{len(notes)} notes; wrote {out}")
+    status = "reference-scored" if reference_check is not None else "UNVERIFIED (audio metrics are not note accuracy)"
+    print(f"{len(notes)} candidate notes; {status}; wrote {out}")
     return 0
 
 
@@ -384,7 +415,11 @@ def main(argv: list[str] | None = None) -> int:
     trans = sub.add_parser("transcribe", help="extract notes from an isolated stem and render a reconstruction")
     trans.add_argument("reference")
     trans.add_argument("-o", "--out", required=True)
-    trans.add_argument("--method", choices=("mono", "melody", "templates"), default="mono")
+    trans.add_argument("--method", choices=("mono", "melody", "templates", "basic-pitch"), default="mono")
+    trans.add_argument("--model-path", help="local Basic Pitch nmp.onnx (requires notes[transcription])")
+    trans.add_argument("--reference-notes", help="explicit reference note JSON for onset/pitch/offset scoring")
+    trans.add_argument("--melody-onsets", choices=("mix", "pitch"), default="mix",
+                       help="melody re-picks: legacy mix attacks, or experimental pitch-energy attacks")
     trans.add_argument("--instrument", choices=("bass", "electric", "acoustic", "twelve"), default="bass")
     trans.add_argument("--settings", help="JSON object of instrument constructor parameters")
     trans.add_argument("--start")
