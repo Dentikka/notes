@@ -133,6 +133,21 @@ templates, but can still hallucinate notes and does not reliably separate lead/r
 guitars. It is an independent baseline, not a verified replacement. The original
 methods and defaults remain available.
 
+For Basic Pitch, `--note-decoder onsets` starts notes only at their own onset peaks
+(default onset threshold 0.7), instead of treating frame-confidence runs as new notes.
+This avoids false re-picks after confidence dropouts. `--release-threshold 0.15`
+extends tails of already accepted notes without admitting new weak candidates.
+`--harmonic-ratio 0.85` optionally drops a weaker coincident upper harmonic; it can
+also drop a genuine quiet octave and is disabled by default. `--no-contours` renders
+fixed pitches when model-estimated bends are inappropriate. All settings are recorded.
+
+On the existing locally annotated clean Still Loving You control, this decoder with
+harmonic pruning matched all 23 onset/pitch events in the first eight seconds (legacy:
+22 matches among 42 candidates). On a separate 8.0–10.35 s segment it found 5 of 6 notes
+with no extras (legacy: 5 matches among 11). These are narrow checks against an existing
+manual part, not a general accuracy benchmark; note endings and distorted guitars
+remain unresolved. Legacy `--note-decoder frames` remains the default for compatibility.
+
 Python APIs: `template_track`, `notes_from_templates`, `instrument_templates` in
 `notes.ears.polyphonic`; `notes_from_track(..., sustain_unvoiced=True)` and
 `tracked_music(notes, contours=True)` in `notes.ears.transcribe`. The latter returns
