@@ -83,6 +83,40 @@ calibrated to equal loudness, so a track's `gain` is dB relative to the others.
 
 ## Command line
 
+### Transcribe an isolated instrument stem
+
+```bash
+notes transcribe bass.wav -o out/bass --low 23 --high 55
+notes transcribe solo.wav -o out/solo --method melody --instrument electric --low 52 --high 88
+notes transcribe acoustic.wav -o out/acoustic --method templates --instrument twelve --low 40 --high 80 --max-polyphony 6
+```
+
+`mono` uses YIN and carries a known pitch through audible unvoiced tails until silence
+or a new onset. `melody` estimates the dominant pitch over accompaniment; choose its
+register carefully and inspect the result for octave errors. It retains measured
+bends/vibrato as per-note `pitch_points` (seconds, semitone offsets). This additive
+renderer parameter also works through IR JSON; existing vibrato/bend/slide remain available.
+
+`templates` jointly fits spectra rendered for each candidate note, with nonnegative
+sparse activation and independent note endings. It can follow chords and arpeggios
+without imposing a chord vocabulary or borrowing the bass rhythm. Include octave
+courses inside each twelve-string template. `--settings params.json` accepts a flat
+instrument-parameter object; `--a4` sets recording tuning. `--start/--end` cut the
+reference; `--channel mid|side|left|right` selects the signal to analyse. Outputs are
+local to `-o`: `notes.json` (times relative to the cut, pitches and contours), MIDI,
+IR, reconstruction WAV, piano roll, spectrogram, comparison and A/B audio.
+
+These are inspectable baselines, not guaranteed transcription of arbitrary songs.
+Template mismatch, distortion, separation noise and bends can all create false notes.
+`--relative-db`, `--sparsity`, `--min-duration` and `--max-polyphony` expose the assumptions.
+Residual reconstruction error is not note accuracy. The reconstruction omits effects
+outside the chosen instrument. Supply isolated stems; separation is a separate step.
+
+Python APIs: `template_track`, `notes_from_templates`, `instrument_templates` in
+`notes.ears.polyphonic`; `notes_from_track(..., sustain_unvoiced=True)` and
+`tracked_music(notes, contours=True)` in `notes.ears.transcribe`. The latter returns
+Music in seconds, to play at BPM 60. Existing transcription defaults are unchanged.
+
 ### Fit an instrument to a recording
 
 `notes fit reference.wav examples/reference_fit.py -o out/fit --max-evaluations 30`

@@ -258,6 +258,74 @@ def _fit(args: argparse.Namespace) -> int:
     return 0
 
 
+def _transcribe(args: argparse.Namespace) -> int:
+    import numpy as np
+
+    from notes import AcousticGuitar, BassGuitar, ElectricGuitar
+    from notes.ears.compare import ANALYSIS_RATE, _onset_strength, _onsets, compare, listening, load
+    from notes.ears.polyphonic import instrument_templates, notes_from_templates, template_track
+    from notes.ears.transcribe import melody_track, notes_from_track, pitch_track, tracked_music
+    from notes.engine.audio import write_wav
+    from notes.lang.song import Track
+    from notes.viz import comparison, pianoroll, spectrogram
+
+    if args.high < args.low or not 0 <= args.low <= args.high <= 127 or args.a4 <= 0:
+        raise ValueError("need 0 <= low <= high <= 127 and positive tuning")
+    start, end = _seconds(args.start) or 0.0, _seconds(args.end)
+    ref = load(args.reference, start=start, end=end)
+    mono = {"mid": ref.mean(axis=0), "side": (ref[0] - ref[-1]) / 2,
+            "left": ref[0], "right": ref[-1]}[args.channel]
+    ref = np.stack((mono, mono))
+    params = json.loads(Path(args.settings).read_text(encoding="utf-8")) if args.settings else {}
+    constructors = {"bass": BassGuitar, "electric": ElectricGuitar,
+                    "acoustic": AcousticGuitar, "twelve": lambda **kw: AcousticGuitar(**(kw | {"twelve": True}))}
+    instrument = constructors[args.instrument](**params)
+    onsets = _onsets(*_onset_strength(mono))
+    out = Path(args.out).resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    residual = None
+    if args.method == "templates":
+        templates = instrument_templates(instrument, range(args.low, args.high + 1), a4=args.a4)
+        track = template_track(mono, ANALYSIS_RATE, templates, n_fft=8192, sparsity=args.sparsity)
+        notes = notes_from_templates(track, onsets, min_dur=args.min_duration,
+                                     max_polyphony=args.max_polyphony, relative_db=args.relative_db)
+        residual = float(np.mean(track.residual))
+    else:
+        fmin, fmax = args.a4 * 2 ** ((args.low - 69) / 12), args.a4 * 2 ** ((args.high - 69) / 12)
+        track = (pitch_track(mono, ANALYSIS_RATE, fmin, fmax) if args.method == "mono"
+                 else melody_track(mono, ANALYSIS_RATE, fmin, fmax))
+        notes = notes_from_track(track, onsets, a4=args.a4, min_dur=args.min_duration,
+                                 sustain_unvoiced=args.method == "mono", jump=0.7 if args.method == "mono" else 3.0)
+    _write_json(out / "notes.json", {"reference": str(Path(args.reference).resolve()),
+                "start": start, "end": end, "method": args.method, "channel": args.channel,
+                "a4": args.a4, "instrument": args.instrument, "settings": params,
+                "low": args.low, "high": args.high, "min_duration": args.min_duration,
+                "sparsity": args.sparsity, "relative_db": args.relative_db, "max_polyphony": args.max_polyphony,
+                "git_revision": _git_revision(), "residual": residual,
+                "notes": [{"start": n.start, "end": n.end, "pitch": n.pitch, "level_db": n.level_db,
+                           "contour_t": n.contour_t.tolist(), "contour": n.contour.tolist()} for n in notes]})
+    if not notes:
+        print(f"No notes found; wrote {out / 'notes.json'}")
+        return 1
+    music = tracked_music(notes, duration=len(mono) / ANALYSIS_RATE, contours=args.method == "melody")
+    song = Song(Track("transcribed", instrument)(music), bpm=60, a4=args.a4, loudness=None, seed=17)
+    score = song.compile()
+    score.to_json(out / "transcribed.ir.json")
+    write_midi(score, out / "transcribed.mid")
+    pianoroll(score, out / "transcribed.png")
+    audio = song.render().audio
+    write_wav(out / "transcribed.wav", audio, ANALYSIS_RATE, bits=24)
+    spectrogram(audio, ANALYSIS_RATE, out / "transcribed.spec.png", "Transcribed stem")
+    comp = compare(ref, audio, max_lag=0.05)
+    _write_json(out / "comparison.json", comp.report)
+    comparison(comp, out / "comparison.png", "Transcribed stem vs reference")
+    ab, toggle = listening(comp)
+    write_wav(out / "transcribed.ab.wav", ab, ANALYSIS_RATE)
+    write_wav(out / "transcribed.toggle.wav", toggle, ANALYSIS_RATE)
+    print(f"{len(notes)} notes; wrote {out}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(errors="replace")
@@ -313,6 +381,23 @@ def main(argv: list[str] | None = None) -> int:
     fit.add_argument("--max-lag", type=float, default=0.05)
     fit.add_argument("--workers", type=int, default=1)
     fit.set_defaults(func=_fit)
+    trans = sub.add_parser("transcribe", help="extract notes from an isolated stem and render a reconstruction")
+    trans.add_argument("reference")
+    trans.add_argument("-o", "--out", required=True)
+    trans.add_argument("--method", choices=("mono", "melody", "templates"), default="mono")
+    trans.add_argument("--instrument", choices=("bass", "electric", "acoustic", "twelve"), default="bass")
+    trans.add_argument("--settings", help="JSON object of instrument constructor parameters")
+    trans.add_argument("--start")
+    trans.add_argument("--end")
+    trans.add_argument("--channel", choices=("mid", "side", "left", "right"), default="mid")
+    trans.add_argument("--a4", type=float, default=440)
+    trans.add_argument("--low", type=int, default=28, help="lowest candidate MIDI pitch")
+    trans.add_argument("--high", type=int, default=76, help="highest candidate MIDI pitch")
+    trans.add_argument("--min-duration", type=float, default=0.08)
+    trans.add_argument("--sparsity", type=float, default=0.03)
+    trans.add_argument("--relative-db", type=float, default=18)
+    trans.add_argument("--max-polyphony", type=int)
+    trans.set_defaults(func=_transcribe)
     export = sub.add_parser("export", help="MP3 and MP4 (still cover + audio) of a render (needs notes[media])")
     export.add_argument("audio", help="a rendered WAV; title and cover come from the IR JSON and piano roll beside it")
     export.add_argument("--mp3", action="store_true", help="only the MP3 (default: both)")
