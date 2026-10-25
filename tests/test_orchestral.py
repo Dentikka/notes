@@ -97,3 +97,18 @@ def test_register_readout_preserves_low_note_and_rebalances_upper_modes():
         hz = np.fft.rfftfreq(len(y), 1 / 22050)
         return spectrum[abs(hz-2*f)<20].sum() / spectrum[abs(hz-f)<20].sum()
     assert ratio(True) < 0.4 * ratio(False)
+
+
+def test_attack_presence_preserves_low_register_and_late_tail():
+    from notes.engine.hammer import struck_string
+    low = struck_string(110, 22050, 22050, 0.8, radiation=True)
+    assert np.array_equal(low, struck_string(110, 22050, 22050, 0.8, radiation=True, attack_presence=0.6))
+    freq = 440 * 2 ** (7 / 12)
+    base = struck_string(freq, 22050, 22050, 0.8, radiation=True)
+    changed = struck_string(freq, 22050, 22050, 0.8, radiation=True, attack_presence=0.6)
+    def relative(a, b):
+        return np.linalg.norm(a-b) / np.linalg.norm(a)
+    assert relative(base[:2205], changed[:2205]) > 0.01
+    assert relative(base[11025:], changed[11025:]) < 0.0001
+    with pytest.raises(ValueError):
+        Piano(attack_presence=1.1)

@@ -18,7 +18,7 @@ from notes import (
 # Baseline palette. The brighter soundboard/direct variants were rejected on listening;
 # they remain opt-in experimental API options, not recommended presets.
 instruments = {
-    "piano": Piano(),
+    "piano": Piano(model="hammer_damped"),
     "violin": Violin(),
     "cello": Cello(),
     "clean-guitar": ElectricGuitar(drive=0.06, pickup="neck", tone=0.3),
