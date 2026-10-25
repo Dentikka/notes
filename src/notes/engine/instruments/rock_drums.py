@@ -32,13 +32,14 @@ def _time(seconds: float, sr: int) -> np.ndarray:
     return np.arange(max(1, int(seconds * sr))) / sr
 
 
-def _kick(sr: int, rng: np.random.Generator, vel: float, k: float, d: float, click: float) -> np.ndarray:
+def _kick(sr: int, rng: np.random.Generator, vel: float, k: float, d: float, click: float,
+          damping: float = 1.3, body: float = 0.3) -> np.ndarray:
     t = _time(0.9 * d, sr)
-    head = membrane(t, _KICK_HZ * k, 0.16 * d, rng, strike=0.15, glide=0.35 * vel, n_modes=8, damping=1.3)
+    head = membrane(t, _KICK_HZ * k, 0.16 * d, rng, strike=0.15, glide=0.35 * vel, n_modes=8, damping=damping)
     # The shell and the ported front head: a short boom an octave up.
     boom = membrane(t, 2.0 * _KICK_HZ * k, 0.05 * d, rng, strike=0.0, n_modes=3)
     beater = impact(t.size, sr, rng, hardness=0.4 + 0.5 * vel, length=0.0012)
-    y = head + 0.3 * boom + click * (0.6 + 0.8 * vel) * beater
+    y = head + body * boom + click * (0.6 + 0.8 * vel) * beater
     # Miked inside: boxiness dipped, the beater's click lifted.
     y = filt(y, "peak", 380.0, sr, 1.0, -6.0)
     return filt(filt(y, "peak", 3500.0, sr, 1.0, 4.0 * click), "lowpass", 9000.0, sr, 0.7)
@@ -139,16 +140,26 @@ class RockKit(Instrument):
     `tune` shifts the heads and cymbals in semitones, `decay` scales ring times (a damped
     70s kit ~0.8, an open 80s kit ~1.3), `click` the kick beater's attack, `wires` the
     snare's buzz, `rimshot` how much of each backbeat lands on the rim too. Velocity
-    shapes the timbre; closed hats choke the open hat.
+    shapes the timbre; closed hats choke the open hat. `kick_damping` controls
+    frequency-dependent losses of the kick head; `kick_body` its second-head share.
+    Defaults retain the original kit.
     """
 
     program: int | None = 0
     tune: float = 0.0
     decay: float = 1.0
     click: float = 0.6
+    kick_damping: float = 1.3
+    kick_body: float = 0.3
     wires: float = 0.8
     rimshot: float = 0.3
     level: float = 0.9
+
+    def __post_init__(self) -> None:
+        if not np.isfinite(self.kick_damping) or self.kick_damping <= 0:
+            raise ValueError("kick_damping must be finite and positive")
+        if not np.isfinite(self.kick_body) or self.kick_body < 0:
+            raise ValueError("kick_body must be finite and nonnegative")
 
     def release_time(self) -> float:
         return 4.5 * self.decay + 0.1  # sounds ignore the gate; the crash rings longest
@@ -159,7 +170,7 @@ class RockKit(Instrument):
     def _sounds(self, sr: int, vel: float) -> dict[str, tuple[Callable[[np.random.Generator], np.ndarray], float]]:
         k, d = 2.0 ** (self.tune / 12.0), self.decay
         sounds = {
-            "kick": (lambda r: _kick(sr, r, vel, k, d, self.click), 0.95),
+            "kick": (lambda r: _kick(sr, r, vel, k, d, self.click, self.kick_damping, self.kick_body), 0.95),
             "snare": (lambda r: _snare(sr, r, vel, k, d, self.wires, self.rimshot), 0.8),
             "rim": (lambda r: _cross_stick(sr, r, vel), 0.45),
             "hat": (lambda r: _hat(sr, r, vel, k, 0.035 * d, 0.25), 0.28),

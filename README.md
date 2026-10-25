@@ -294,3 +294,11 @@ spectral error also catches energy outside the analysed harmonic range. Version 
 reference-only masked scores must not be used to claim a timbre improvement.
 The calibration examples are candidates: the finger-bass fit has a D2 regression,
 and the nylon fit is not transferable unchanged to steel-string guitars.
+
+`audit_profile_set(references, baseline, candidate)` reports regressions for every
+case, including when the mean improves. All case IDs must match. Its no-regression
+flag concerns diagnostic features only, not perceptual realism.
+
+`RockKit(kick_damping=..., kick_body=...)` exposes frequency-dependent head losses
+and the second-head share of the kick model. Defaults preserve the existing kit;
+these are procedural modal parameters, not recorded samples.
