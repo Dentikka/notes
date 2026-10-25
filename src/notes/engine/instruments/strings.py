@@ -62,7 +62,8 @@ def fret_scale(pitch: float, string: int | None = None) -> float:
     """How much shorter than the open string the vibrating length is for this note.
 
     With an explicit string (1=high e, 6=low E), use that string's fret. Otherwise
-    use the highest string that can play the note (lowest fret). The pick and the pickups sit at fixed distances from the bridge, so
+    use the highest string that can play the note (lowest fret). The pick and the pickups
+    sit at fixed distances from the bridge, so
     as a fretted string gets shorter they sit relatively further along it: at the 12th
     fret the neck pickup is near the middle of the string, which is why high notes on the
     neck pickup sound round and hollow.
