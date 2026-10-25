@@ -144,3 +144,24 @@ def test_fret_scale_honors_explicit_string_and_keeps_automatic_default():
     assert fret_scale(64, 2) == pytest.approx(2**(-5/12))
     with pytest.raises(ValueError):
         fret_scale(64, 7)
+
+
+def test_per_note_pick_controls_preserve_pitch_and_soften_excitation():
+    from notes import ElectricGuitar
+    from notes.engine import Voice
+    instrument = ElectricGuitar(pitch_attack=0, pick_noise=0)
+    context = RenderContext(sr=SR, bpm=60)
+    def note(**params):
+        return instrument.voice(Voice(329.6276,64,.7,.8,params),context,np.random.default_rng(17))
+    assert np.array_equal(note(),note(pick_position=instrument.pick_position,pick_hardness=instrument.brightness))
+    soft,hard=note(pick_hardness=.1),note(pick_hardness=1)
+    def treble(y):
+        y=y[:SR//5]
+        power=abs(np.fft.rfft(y*np.hanning(len(y))))**2
+        hz=np.fft.rfftfreq(len(y),1/SR)
+        return power[hz>3000].sum()/power.sum()
+    assert treble(soft)<treble(hard)
+    assert not np.array_equal(note(pick_position=.1),note(pick_position=.35))
+    for params in ({"pick_position":0},{"pick_hardness":float("nan")}):
+        with pytest.raises(ValueError):
+            note(**params)

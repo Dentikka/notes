@@ -313,3 +313,8 @@ With `ElectricGuitar(fretting=True)`, an explicit per-note `string=1..6` now
 selects the string used to compute the fret length, pick and pickup geometry.
 Previously it only affected wound/plain damping and the automatic string still
 set the geometry. The default unfretted renderer remains unchanged.
+
+Electric-guitar notes also accept `pick_position` and `pick_hardness` through
+`Music.param(...)`. These physical controls override the instrument defaults
+before fretting, mute/legato and velocity-brightness modifiers. They store scalar
+performance parameters; no reference waveform is used by the synthesizer.

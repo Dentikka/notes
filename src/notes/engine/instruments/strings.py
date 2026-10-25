@@ -158,6 +158,9 @@ class ElectricGuitar(Instrument):
 
     ``amplified=False`` bypasses the amp and cabinet for a direct pickup signal.
 
+    Per-note ``pick_position`` and ``pick_hardness`` override the constructor
+    controls before fret geometry and mute/legato/velocity modifiers.
+
     Per-note parameters: ``palm_mute=True`` for chugs that ring `mute_decay` seconds (T60)
     with the pluck softened to `mute_brightness`; ``legato=True`` for a note sounded by the
     fretting hand (hammer-on, pull-off, the end of a slide): no pick click, a softer and
@@ -213,7 +216,13 @@ class ElectricGuitar(Instrument):
         legato = bool(v.params.get("legato", False))
         t60 = self.mute_decay if muted else _t60(self.sustain, v.freq)
         t60_high = min(self.treble_decay, 0.3 * t60) if muted else self.treble_decay
-        hardness = self.brightness * (self.mute_brightness if muted else 1.0) * (_LEGATO_SOFTNESS if legato else 1.0)
+        pick_position = float(v.params.get("pick_position", self.pick_position))
+        pick_hardness = float(v.params.get("pick_hardness", self.brightness))
+        if "pick_position" in v.params and (not np.isfinite(pick_position) or not 0 < pick_position < 1):
+            raise ValueError("per-note pick_position must be finite and between 0 and 1")
+        if "pick_hardness" in v.params and (not np.isfinite(pick_hardness) or not 0 <= pick_hardness <= 1):
+            raise ValueError("per-note pick_hardness must be finite and between 0 and 1")
+        hardness = pick_hardness * (self.mute_brightness if muted else 1.0) * (_LEGATO_SOFTNESS if legato else 1.0)
         hardness *= 1.0 - self.velocity_brightness * (1.0 - v.vel)
         string = v.params.get("string")
         if (string in _WOUND_STRINGS) if string is not None else v.pitch < _LOWEST_PLAIN:
@@ -221,7 +230,7 @@ class ElectricGuitar(Instrument):
             hardness *= self.wound_brightness
         scale = fret_scale(v.pitch, string) if self.fretting else 1.0
         position = _along(_PICKUP_POSITION[self.pickup], scale)
-        pick = _along(self.pick_position, scale)
+        pick = _along(pick_position, scale)
         lag = int(round(position * sr / v.freq))
 
         def string(m: int) -> np.ndarray:
