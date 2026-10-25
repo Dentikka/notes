@@ -58,16 +58,21 @@ def _pick_click(n: int, sr: int, rng: np.random.Generator) -> np.ndarray:
     return click
 
 
-def fret_scale(pitch: float) -> float:
+def fret_scale(pitch: float, string: int | None = None) -> float:
     """How much shorter than the open string the vibrating length is for this note.
 
-    The note goes on the highest string that can play it (lowest fret), as melodies are
-    usually played. The pick and the pickups sit at fixed distances from the bridge, so
+    With an explicit string (1=high e, 6=low E), use that string's fret. Otherwise
+    use the highest string that can play the note (lowest fret). The pick and the pickups sit at fixed distances from the bridge, so
     as a fretted string gets shorter they sit relatively further along it: at the 12th
     fret the neck pickup is near the middle of the string, which is why high notes on the
     neck pickup sound round and hollow.
     """
-    open_string = max((s for s in _STANDARD_TUNING if s <= pitch), default=_STANDARD_TUNING[0])
+    if string is None:
+        open_string = max((s for s in _STANDARD_TUNING if s <= pitch), default=_STANDARD_TUNING[0])
+    else:
+        if not isinstance(string, int) or not 1 <= string <= 6:
+            raise ValueError("string must be an integer from 1 to 6")
+        open_string = _STANDARD_TUNING[6-string]
     fret = float(np.clip(pitch - open_string, 0.0, _MAX_FRET))
     return 2.0 ** (-fret / 12.0)
 
@@ -213,7 +218,7 @@ class ElectricGuitar(Instrument):
         if (string in _WOUND_STRINGS) if string is not None else v.pitch < _LOWEST_PLAIN:
             t60_high *= self.wound_treble
             hardness *= self.wound_brightness
-        scale = fret_scale(v.pitch) if self.fretting else 1.0
+        scale = fret_scale(v.pitch, string) if self.fretting else 1.0
         position = _along(_PICKUP_POSITION[self.pickup], scale)
         pick = _along(self.pick_position, scale)
         lag = int(round(position * sr / v.freq))

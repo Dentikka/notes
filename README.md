@@ -308,3 +308,8 @@ these are procedural modal parameters, not recorded samples.
 `examples/reference_rock_kit.py` combines the reference-calibrated kick and a
 procedurally generated room with the unchanged baseline snare and hats. The
 alternative snare fit remains experimental rather than replacing the baseline.
+
+With `ElectricGuitar(fretting=True)`, an explicit per-note `string=1..6` now
+selects the string used to compute the fret length, pick and pickup geometry.
+Previously it only affected wound/plain damping and the automatic string still
+set the geometry. The default unfretted renderer remains unchanged.

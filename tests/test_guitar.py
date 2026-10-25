@@ -123,3 +123,24 @@ def test_wound_strings_can_be_darker():
     assert np.allclose(note(dark, 64.0), note(plain, 64.0))  # E4 with no string: taken as plain
     assert treble(note(dark, 59.0, string=4)) < 0.7 * treble(note(plain, 59.0, string=4))  # B3 on the D string
     assert np.allclose(note(dark, 59.0, string=2), note(plain, 59.0, string=2))  # open B: plain
+
+
+def test_explicit_plain_string_changes_fretted_pickup_geometry():
+    from notes import ElectricGuitar
+    from notes.engine import Voice
+    guitar = ElectricGuitar(fretting=True, pitch_attack=0)
+    context = RenderContext(sr=SR, bpm=60)
+    def note(string):
+        return guitar.voice(Voice(329.6276,64,.7,.8,{"string":string}),context,np.random.default_rng(17))
+    # E4 on open high e versus B-string fifth fret: same pitch, different geometry.
+    assert not np.array_equal(note(1),note(2))
+    for y in (note(1),note(2)):
+        assert _peak_hz(y[SR//5:SR//2],329.6276,8) == pytest.approx(329.6276,abs=2)
+
+
+def test_fret_scale_honors_explicit_string_and_keeps_automatic_default():
+    from notes.engine.instruments.strings import fret_scale
+    assert fret_scale(64) == fret_scale(64, 1) == 1
+    assert fret_scale(64, 2) == pytest.approx(2**(-5/12))
+    with pytest.raises(ValueError):
+        fret_scale(64, 7)
