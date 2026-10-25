@@ -51,3 +51,20 @@ def test_cli_audits_known_notes_without_claiming_realism(tmp_path):
     assert report["harmonic_mae_db"] > 4
     with pytest.raises(ValueError):
         main(["audit-note", str(ref), str(candidate), "--pitch", "A3", "-o", str(ref)])
+
+
+def test_spurious_render_partial_is_not_hidden_by_reference_mask():
+    t = np.arange(SR*2)/SR
+    reference = tone()
+    extra = .35*np.sin(2*np.pi*220*15*t)*np.exp(-t)*(1-np.exp(-t/.005))
+    report = compare_profiles(profile_note(reference, SR, 220),
+                              profile_note(reference+extra, SR, 220))
+    assert report["harmonic_mae_db"] > 3
+
+
+def test_out_of_harmonic_range_noise_is_visible_in_broadband_error():
+    t = np.arange(SR*2)/SR
+    extra = .3*np.sin(2*np.pi*7000*t)*np.exp(-t)
+    a = profile_note(tone(), SR, 220)
+    b = profile_note(tone()+extra, SR, 220)
+    assert compare_profiles(a, b)["broadband_mae_db"] > 3

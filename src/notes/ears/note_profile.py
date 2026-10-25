@@ -21,6 +21,7 @@ class NoteProfile:
     partial_db: np.ndarray
     partial_hz: np.ndarray
     attack_seconds: float
+    band_db: np.ndarray
 
 
 def profile_note(audio: np.ndarray, sr: int, f0: float, *, harmonics: int = 20) -> NoteProfile:
@@ -82,8 +83,11 @@ def profile_note(audio: np.ndarray, sr: int, f0: float, *, harmonics: int = 20) 
     top = float(first.max())
     t10 = int(np.flatnonzero(first >= top*0.1)[0])
     t90 = int(np.flatnonzero(first >= top*0.9)[0])
+    edges = np.geomspace(20, sr*0.48, 25)
+    bands = np.array([10*np.log10(power[(freq >= a) & (freq < b)].sum(axis=0)+1e-20)
+                      for a, b in zip(edges[:-1], edges[1:], strict=True)]).T
     return NoteProfile(start/sr, measured, time, rms_db, np.array(partials).T,
-                       np.array(locations), max(0, t90-t10)/sr)
+                       np.array(locations), max(0, t90-t10)/sr, bands)
 
 
 def compare_profiles(reference: NoteProfile, candidate: NoteProfile) -> dict[str, float | int]:
@@ -95,9 +99,26 @@ def compare_profiles(reference: NoteProfile, candidate: NoteProfile) -> dict[str
         raise ValueError("not enough shared note material")
     ref = np.array([np.interp(times, reference.time, reference.partial_db[:, h]) for h in range(count)]).T
     est = np.array([np.interp(times, candidate.time, candidate.partial_db[:, h]) for h in range(count)]).T
-    keep = ref > ref.max()-45
-    gain = float(np.median((ref-est)[keep]))
-    error = np.minimum(abs(est+gain-ref), 60)
+    # Match one overall gain by total harmonic energy, then use the UNION of
+    # audible reference and candidate cells. A reference-only mask silently lets
+    # an optimizer add strong harmonics where the recording has none.
+    ref_peak, est_peak = float(ref.max()), float(est.max())
+    ref_energy = float(np.sum(10**((ref-ref_peak)/10)))
+    est_energy = float(np.sum(10**((est-est_peak)/10)))
+    gain = ref_peak-est_peak + 10*np.log10(ref_energy/est_energy)
+    reference_audible = ref > ref_peak-45
+    candidate_audible = est+gain > ref_peak-45
+    keep = reference_audible | candidate_audible
+    floor = ref_peak-60
+    error = np.minimum(abs(np.maximum(est+gain, floor)-np.maximum(ref, floor)), 60)
+    band_ref = np.array([np.interp(times, reference.time, reference.band_db[:, h])
+                         for h in range(reference.band_db.shape[1])]).T
+    band_est = np.array([np.interp(times, candidate.time, candidate.band_db[:, h])
+                         for h in range(candidate.band_db.shape[1])]).T
+    band_gain = 10*np.log10(np.sum(10**(band_ref/10))/np.sum(10**(band_est/10)))
+    band_peak = float(band_ref.max())
+    band_keep = (band_ref > band_peak-45) | (band_est+band_gain > band_peak-45)
+    band_error = abs(np.maximum(band_ref, band_peak-60)-np.maximum(band_est+band_gain, band_peak-60))
     envelope_ref = np.interp(times, reference.time, reference.rms_db)
     envelope_est = np.interp(times, candidate.time, candidate.rms_db)
     envelope_error = envelope_est-envelope_ref
@@ -105,8 +126,12 @@ def compare_profiles(reference: NoteProfile, candidate: NoteProfile) -> dict[str
     attack = keep & (times[:, None] < 0.15)
     tail = keep & (times[:, None] >= 0.15)
     return {
+        "profile_metric_version": 2,
+        "spurious_partial_cells": int(np.sum(candidate_audible & ~reference_audible)),
+        "missing_partial_cells": int(np.sum(reference_audible & ~candidate_audible)),
         "pitch_cents": float(1200*np.log2(candidate.f0/reference.f0)),
         "attack_error_seconds": candidate.attack_seconds-reference.attack_seconds,
+        "broadband_mae_db": float(np.minimum(band_error, 60)[band_keep].mean()),
         "harmonic_mae_db": float(error[keep].mean()),
         "attack_harmonic_mae_db": float(error[attack].mean()) if attack.any() else 0.0,
         "tail_harmonic_mae_db": float(error[tail].mean()) if tail.any() else 0.0,
