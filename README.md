@@ -283,3 +283,7 @@ per-note `string=1..6` selects the open string. These additions preserve the
 original steel/electric/bass excitation defaults. Realism is not yet established.
 The displacement construction follows the ideal-pluck formulation in
 [Julius O. Smith, Physical Audio Signal Processing: The Ideal Plucked String](https://www.dsprelated.com/freebooks/pasp/Ideal_Plucked_String.html).
+
+The same known-note audit is exposed by the CLI:
+`notes audit-note reference.wav render.wav --pitch A3 -o report.json`.
+It does not infer a part from a mixture and does not label the instrument realistic.

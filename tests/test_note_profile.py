@@ -34,3 +34,20 @@ def test_wrong_timbre_pitch_and_decay_are_visible():
 def test_invalid_note_rejected(x):
     with pytest.raises(ValueError):
         profile_note(x, SR, 220)
+
+
+def test_cli_audits_known_notes_without_claiming_realism(tmp_path):
+    import json
+
+    from notes.cli import main
+    from notes.engine.audio import write_wav
+    ref, candidate = tmp_path/"reference.wav", tmp_path/"candidate.wav"
+    write_wav(ref, tone()*0.3, SR)
+    write_wav(candidate, tone(second=1.8)*0.2, SR)
+    output = tmp_path/"audit/report.json"
+    assert main(["audit-note", str(ref), str(candidate), "--pitch", "A3", "-o", str(output)]) == 0
+    report = json.loads(output.read_text())
+    assert report["status"] == "diagnostic-only"
+    assert report["harmonic_mae_db"] > 4
+    with pytest.raises(ValueError):
+        main(["audit-note", str(ref), str(candidate), "--pitch", "A3", "-o", str(ref)])
