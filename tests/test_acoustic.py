@@ -1,7 +1,6 @@
 import numpy as np
 import pytest
-
-from notes import AcousticGuitar, ElectricGuitar, Song, Track, melody
+from notes import AcousticGuitar, ElectricGuitar, NylonGuitar, Song, Track, melody
 from notes.engine import RenderContext, Voice
 from notes.engine.effects.body import body_ir
 
@@ -60,3 +59,30 @@ def test_acoustic_sits_near_the_electric_in_level():
             "lufs_in_mix"]
 
     assert abs(loudness(AcousticGuitar()) - loudness(ElectricGuitar(drive=0.06, tone=0.5))) < 8.0
+
+
+def test_fretting_changes_timbre_for_the_same_pitch_on_different_strings():
+    instrument = AcousticGuitar(fretting=True)
+    a = _note(instrument, 64, string=1, seconds=1)
+    b = _note(instrument, 64, string=2, seconds=1)
+    # Same E4, different vibrating lengths and relative pick positions.
+    assert not np.allclose(a, b)
+    for y in (a, b):
+        spec = abs(np.fft.rfft(y[:SR] * np.hanning(SR)))
+        hz = np.fft.rfftfreq(SR, 1/SR)
+        mask = (hz > 315) & (hz < 345)
+        assert hz[mask][spec[mask].argmax()] == pytest.approx(329.6, abs=3)
+
+
+def test_nylon_variant_is_in_tune_and_has_softer_upper_spectrum():
+    from notes.engine.registry import build_instrument
+    nylon = NylonGuitar()
+    assert build_instrument(nylon.to_spec()) == nylon
+    y = _note(nylon, 57, seconds=1)
+    spec = abs(np.fft.rfft(y * np.hanning(len(y))))**2
+    hz = np.fft.rfftfreq(len(y), 1/SR)
+    region = (hz > 210) & (hz < 230)
+    assert hz[region][spec[region].argmax()] == pytest.approx(220, abs=2)
+    steel = _note(AcousticGuitar(), 57, seconds=1)
+    a = abs(np.fft.rfft(steel*np.hanning(len(steel))))**2
+    assert spec[hz>2000].sum()/spec.sum() < a[hz>2000].sum()/a.sum()

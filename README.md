@@ -274,3 +274,12 @@ Known-note reference diagnostics are available in `notes.ears.note_profile`:
 attack errors while removing an overall gain difference. It requires an isolated
 note with a known pitch and never produces a realism/approval label. Reference
 recordings remain outside the synthesizer and the repository.
+
+`NylonGuitar()` is an experimental procedural classical-guitar variant using a
+rounded triangular-displacement waveguide readout. It supports the acoustic
+instrument's body and twelve-string controls. `AcousticGuitar(fretting=True)` and
+the nylon preset map a fixed physical pick location onto the shortened string;
+per-note `string=1..6` selects the open string. These additions preserve the
+original steel/electric/bass excitation defaults. Realism is not yet established.
+The displacement construction follows the ideal-pluck formulation in
+[Julius O. Smith, Physical Audio Signal Processing: The Ideal Plucked String](https://www.dsprelated.com/freebooks/pasp/Ideal_Plucked_String.html).
