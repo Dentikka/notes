@@ -26,6 +26,7 @@ class Piano(Instrument):
     after key release; it is a fixed per-note pedal, not a continuous MIDI pedal.
     brightness controls hammer hardness, detune is unison spread in cents.
     model="soundboard" enables hammer-position coloration and two-stage decay;
+    model="hammer" integrates a nonlinear felt contact exciting string modes.
     legacy preserves the original renderer.
     """
 
@@ -40,8 +41,8 @@ class Piano(Instrument):
     level: float = 0.45
 
     def __post_init__(self) -> None:
-        if self.model not in ("legacy", "soundboard"):
-            raise ValueError("model must be legacy or soundboard")
+        if self.model not in ("legacy", "soundboard", "hammer"):
+            raise ValueError("model must be legacy, soundboard or hammer")
         _positive(sustain=self.sustain, release=self.release)
         for name in ("brightness", "detune", "stiffness", "hammer", "level"):
             value = getattr(self, name)
@@ -52,6 +53,20 @@ class Piano(Instrument):
         return max(self.release, self.sustain)
 
     def voice(self, v: Voice, ctx: RenderContext, rng: np.random.Generator) -> np.ndarray:
+        if self.model == "hammer":
+            from notes.engine.hammer import struck_string
+
+            pedal = bool(v.params.get("pedal", False))
+            tail = self.release_time() if pedal else self.release
+            n = ctx.samples(v.dur + tail)
+            y = struck_string(v.freq, n, ctx.sr, v.vel, brightness=self.brightness,
+                              stiffness=self.stiffness, sustain=self.sustain, detune=self.detune)
+            if not pedal:
+                y *= adsr(ctx.samples(v.dur), n, ctx.sr, 0.001, 0.01, 1, self.release)
+            count = min(n, ctx.samples(0.01))
+            if count:
+                y[-count:] *= np.linspace(1, 0, count)
+            return self.level * y
         if self.model == "soundboard":
             return self._soundboard(v, ctx, rng)
         pedal = bool(v.params.get("pedal", False))
