@@ -267,3 +267,10 @@ The listening-approved piano palette uses `Piano(model="hammer_damped")`.
 (time constant 60 ms); C4 and below and the late tail retain the original source.
 The default is zero, preserving the accepted timbre. The onset option still needs
 listening assessment; it is not a pedal control.
+
+Known-note reference diagnostics are available in `notes.ears.note_profile`:
+`profile_note(mono, sr, expected_f0)` measures tuning, harmonic envelopes and attack;
+`compare_profiles(reference, candidate)` separates harmonic, envelope, pitch and
+attack errors while removing an overall gain difference. It requires an isolated
+note with a known pitch and never produces a realism/approval label. Reference
+recordings remain outside the synthesizer and the repository.
