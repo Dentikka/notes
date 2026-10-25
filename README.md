@@ -267,3 +267,30 @@ The listening-approved piano palette uses `Piano(model="hammer_damped")`.
 (time constant 60 ms); C4 and below and the late tail retain the original source.
 The default is zero, preserving the accepted timbre. The onset option still needs
 listening assessment; it is not a pedal control.
+
+Known-note reference diagnostics are available in `notes.ears.note_profile`:
+`profile_note(mono, sr, expected_f0)` measures tuning, harmonic envelopes and attack;
+`compare_profiles(reference, candidate)` separates harmonic, envelope, pitch and
+attack errors while removing an overall gain difference. It requires an isolated
+note with a known pitch and never produces a realism/approval label. Reference
+recordings remain outside the synthesizer and the repository.
+
+`NylonGuitar()` is an experimental procedural classical-guitar variant using a
+rounded triangular-displacement waveguide readout. It supports the acoustic
+instrument's body and twelve-string controls. `AcousticGuitar(fretting=True)` and
+the nylon preset map a fixed physical pick location onto the shortened string;
+per-note `string=1..6` selects the open string. These additions preserve the
+original steel/electric/bass excitation defaults. Realism is not yet established.
+The displacement construction follows the ideal-pluck formulation in
+[Julius O. Smith, Physical Audio Signal Processing: The Ideal Plucked String](https://www.dsprelated.com/freebooks/pasp/Ideal_Plucked_String.html).
+
+The same known-note audit is exposed by the CLI:
+`notes audit-note reference.wav render.wav --pitch A3 -o report.json`.
+It does not infer a part from a mixture and does not label the instrument realistic.
+
+Note-audit metric version 2 uses the union of audible reference and candidate
+partials, so synthesized extra harmonics are penalized. A separate full-band
+spectral error also catches energy outside the analysed harmonic range. Version 1
+reference-only masked scores must not be used to claim a timbre improvement.
+The calibration examples are candidates: the finger-bass fit has a D2 regression,
+and the nylon fit is not transferable unchanged to steel-string guitars.

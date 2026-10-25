@@ -114,10 +114,16 @@ def _loop(f0: float, sr: int, t60: float, t60_high: float, stiffness: float):
     return length, loop_b, loop_a
 
 
-def _pluck(length: int, sr: int, pick: float, hardness: float, noise: float, rng: np.random.Generator) -> np.ndarray:
-    """One period of string velocity right after the pick lets go."""
+def _pluck(length: int, sr: int, pick: float, hardness: float, noise: float, rng: np.random.Generator,
+           excitation: str = "velocity") -> np.ndarray:
+    """One band-limited period of the selected string variable after release."""
     p = int(np.clip(round(pick * length), 1, length - 1))
-    shape = np.where(np.arange(length) < p, 1.0 / p, -1.0 / (length - p))
+    if excitation == "displacement":
+        # A triangular initial displacement, rounded by the same band-limit filter.
+        position = np.arange(length)
+        shape = np.where(position < p, position / p, (length-position) / (length-p))
+    else:
+        shape = np.where(np.arange(length) < p, 1.0 / p, -1.0 / (length - p))
     shape /= np.max(np.abs(shape))
     shape += noise * rng.uniform(-1.0, 1.0, length)
     # Round the corners: filter the periodic extension, keep one settled period.
@@ -142,9 +148,12 @@ def steel_string(
     detune: float = 0.7,
     second: float = 0.3,
     prompt_t60: float | None = None,
+    excitation: str = "velocity",
 ) -> np.ndarray:
     """n samples of a string plucked at fraction `pick` of its length from the bridge.
 
+    `excitation` selects the original velocity readout or a triangular-displacement
+    variant; both are designed mathematically without recorded excitation.
     `t60` / `t60_high`: decay (s) of the fundamental and of partials near 4 kHz;
     `hardness` 0..1 rounds the pluck from a soft thumb to a hard pick; `noise` is the share
     of noise in the pluck; `stiffness` is the inharmonicity B; the second polarisation is
@@ -152,7 +161,9 @@ def steel_string(
     the first polarisation decays in `prompt_t60` instead (its treble no slower) and the
     second one in `t60`.
     """
-    excitation = np.zeros(n)
+    if excitation not in ("velocity", "displacement"):
+        raise ValueError("excitation must be velocity or displacement")
+    impulse = np.zeros(n)
     out = np.zeros(n)
     detuned = freq * 2.0 ** (detune / 1200.0)
     if prompt_t60 is None:
@@ -164,8 +175,8 @@ def steel_string(
         if weight <= 0:
             continue
         length, b, a = _loop(f0, sr, decay, decay_high, stiffness)
-        burst = _pluck(length, sr, pick, hardness, noise, rng)
-        excitation[:] = 0.0
-        excitation[: min(length, n)] = burst[: min(length, n)]
-        out += weight * feedback_delay(excitation, length, 1.0, b, a)
+        burst = _pluck(length, sr, pick, hardness, noise, rng, excitation)
+        impulse[:] = 0.0
+        impulse[: min(length, n)] = burst[: min(length, n)]
+        out += weight * feedback_delay(impulse, length, 1.0, b, a)
     return dc_block(out, sr)

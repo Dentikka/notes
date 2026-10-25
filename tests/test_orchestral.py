@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+
 from notes import Cello, Piano, Song, Track, Violin, melody
 from notes.engine import RenderContext, Voice, build_instrument
 

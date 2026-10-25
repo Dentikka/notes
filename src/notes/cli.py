@@ -211,6 +211,29 @@ def _compare(args: argparse.Namespace) -> int:
     return 0
 
 
+
+def _audit_note(args: argparse.Namespace) -> int:
+    from notes.ears.compare import load
+    from notes.ears.note_profile import compare_profiles, profile_note
+    from notes.lang.theory import midi_to_hz, parse_pitch
+
+    reference, render, output = (Path(p).resolve() for p in (args.reference, args.render, args.out))
+    if output in (reference, render):
+        raise ValueError("the report must not overwrite an audio input")
+    expected = midi_to_hz(parse_pitch(args.pitch), args.a4)
+    rate = 22050
+    profiles = [profile_note(load(path, sr=rate).mean(axis=0), rate, expected,
+                             harmonics=args.harmonics) for path in (reference, render)]
+    report = {"status": "diagnostic-only", "scope": "isolated known-pitch notes",
+              "reference": str(reference), "render": str(render), "expected_f0": expected,
+              "reference_f0": profiles[0].f0, "render_f0": profiles[1].f0,
+              "git_revision": _git_revision(), **compare_profiles(*profiles)}
+    output.parent.mkdir(parents=True, exist_ok=True)
+    _write_json(output, report)
+    print(json.dumps(report, indent=2))
+    return 0
+
+
 def _fit(args: argparse.Namespace) -> int:
     from notes.ears.compare import ANALYSIS_RATE, listening, load
     from notes.ears.fit import fit_reference
@@ -433,6 +456,14 @@ def main(argv: list[str] | None = None) -> int:
     fit.add_argument("--max-lag", type=float, default=0.05)
     fit.add_argument("--workers", type=int, default=1)
     fit.set_defaults(func=_fit)
+    audit = sub.add_parser("audit-note", help="diagnose two isolated notes of a known pitch; no realism verdict")
+    audit.add_argument("reference")
+    audit.add_argument("render")
+    audit.add_argument("--pitch", required=True, help="known note name, e.g. A2")
+    audit.add_argument("--a4", type=float, default=440)
+    audit.add_argument("--harmonics", type=int, default=20)
+    audit.add_argument("-o", "--out", required=True, help="JSON diagnostic report")
+    audit.set_defaults(func=_audit_note)
     trans = sub.add_parser("transcribe", help="extract notes from an isolated stem and render a reconstruction")
     trans.add_argument("reference")
     trans.add_argument("-o", "--out", required=True)
