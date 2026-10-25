@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+
 from notes import AcousticGuitar, ElectricGuitar, NylonGuitar, Song, Track, melody
 from notes.engine import RenderContext, Voice
 from notes.engine.effects.body import body_ir

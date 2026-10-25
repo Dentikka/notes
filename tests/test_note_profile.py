@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+
 from notes.ears.note_profile import compare_profiles, profile_note
 
 SR = 22050
