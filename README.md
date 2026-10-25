@@ -256,3 +256,8 @@ felt contact couples a moving hammer to damped string modes. The contact runs at
 at least 176.4 kHz; free ringing is evaluated analytically. Velocity sets the impact
 speed rather than merely scaling a predefined spectrum. It is a simplified model,
 not a calibrated acoustic piano. This does not change the default palette.
+
+`Piano(model="hammer_damped")` tests a register-dependent modal readout and
+frequency-dependent losses above A2, preserving the A2-and-below hammer source.
+It addresses overtone dominance measured in the first hammer model; it is not a
+full soundboard simulation or an established realism improvement.

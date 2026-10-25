@@ -84,3 +84,16 @@ def test_hammer_velocity_changes_normalized_spectrum():
         freq = np.fft.rfftfreq(len(y), 1 / 22050)
         return (freq @ power) / power.sum()
     assert centroid(0.95) > centroid(0.25)
+
+
+def test_register_readout_preserves_low_note_and_rebalances_upper_modes():
+    from notes.engine.hammer import struck_string
+    low = struck_string(110, 11025, 22050, 0.8)
+    assert np.array_equal(low, struck_string(110, 11025, 22050, 0.8, radiation=True))
+    def ratio(radiation):
+        f = 440 * 2 ** (7 / 12)
+        y = struck_string(f, 22050, 22050, 0.8, radiation=radiation)[2205:11025]
+        spectrum = abs(np.fft.rfft(y * np.hanning(len(y)))) ** 2
+        hz = np.fft.rfftfreq(len(y), 1 / 22050)
+        return spectrum[abs(hz-2*f)<20].sum() / spectrum[abs(hz-f)<20].sum()
+    assert ratio(True) < 0.4 * ratio(False)
