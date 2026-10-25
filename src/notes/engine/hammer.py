@@ -11,7 +11,8 @@ from scipy.signal import resample_poly
 
 def struck_string(freq: float, n: int, sr: int, velocity: float, *,
                   brightness: float = 0.65, stiffness: float = 0.00012,
-                  sustain: float = 8.0, detune: float = 1.4, radiation: bool = False) -> np.ndarray:
+                  sustain: float = 8.0, detune: float = 1.4, radiation: bool = False,
+                  attack_presence: float = 0.0) -> np.ndarray:
     """Return bridge-velocity-like output following one felt hammer impact.
 
     Frequencies and stiffness define the modes, velocity the initial hammer speed.
@@ -37,6 +38,9 @@ def struck_string(freq: float, n: int, sr: int, velocity: float, *,
     # Blend a displacement-like modal readout above A2; A2 and below remain identical.
     register = float(np.clip(np.log2(freq / 110) / 2.6, 0, 1)) if radiation else 0.0
     bridge *= k ** (-1.2 * register)
+    # A bounded onset-only lift; the accepted long-term spectral balance is unchanged.
+    upper = float(np.clip(np.log2(freq / 261.625565) / 1.333333, 0, 1))
+    onset_lift = 0.4 * attack_presence * upper * (1 - 1 / k)
     mass = 0.012 * (220 / freq) ** 0.35
     hammer_mass = 0.007 * (220 / freq) ** 0.15
     # Force constant has units for the chosen power law; hardness sets felt stiffness.
@@ -62,7 +66,7 @@ def struck_string(freq: float, n: int, sr: int, velocity: float, *,
         q = new_q * damping
         hammer_v -= dt * force / hammer_mass
         hammer_x += dt * hammer_v
-        contact[i] = bridge @ speed
+        contact[i] = (bridge * (1 + onset_lift * np.exp(-i * dt / 0.06))) @ speed
         touched |= force > 0.001
         if touched and compression <= 0:
             stop = i + 1
@@ -73,20 +77,22 @@ def struck_string(freq: float, n: int, sr: int, velocity: float, *,
     end = min(total, stop + 64 * factor)
     times = np.arange(max(0, end - stop)) / rate
     extension = np.zeros(len(times))
-    for w, qi, vi, b, decay in zip(omega, q, speed, bridge, t60, strict=True):
-        extension += b * (vi * np.cos(w * times) - w * qi * np.sin(w * times)) * np.exp(-np.log(1000)*times/decay)
+    for w, qi, vi, b, decay, lift in zip(omega, q, speed, bridge, t60, onset_lift, strict=True):
+        readout = b * (1 + lift * np.exp(-(stop / rate + times) / 0.06))
+        extension += readout * (vi * np.cos(w * times) - w * qi * np.sin(w * times)) * np.exp(-np.log(1000)*times/decay)
     head = resample_poly(np.concatenate((contact, extension)), 1, factor)
     # The rest of the ring is evaluated at the output rate, at the same physical times.
     y = np.zeros(n)
     count = min(n, int(np.ceil(stop / factor)) + 16)
     y[:count] = head[:count]
     times = np.arange(count, n) / sr - stop / rate
-    for w, qi, vi, b, decay in zip(omega, q, speed, bridge, t60, strict=True):
+    for w, qi, vi, b, decay, lift in zip(omega, q, speed, bridge, t60, onset_lift, strict=True):
         phase = w * times
         primary = vi * np.cos(phase) - w * qi * np.sin(phase)
         partner_phase = w * 2 ** (detune / 1200) * times
         partner = vi * np.cos(partner_phase) - w * qi * np.sin(partner_phase)
         # Bring in the secondary polarization continuously after contact.
         blend = 0.23 * (1 - np.exp(-times / 0.06))
-        y[count:] += b * ((1 - blend) * primary + blend * partner) * np.exp(-np.log(1000)*times/decay)
+        readout = b * (1 + lift * np.exp(-(stop / rate + times) / 0.06))
+        y[count:] += readout * ((1 - blend) * primary + blend * partner) * np.exp(-np.log(1000)*times/decay)
     return y * 0.11

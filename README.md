@@ -261,3 +261,9 @@ not a calibrated acoustic piano. This does not change the default palette.
 frequency-dependent losses above A2, preserving the A2-and-below hammer source.
 It addresses overtone dominance measured in the first hammer model; it is not a
 full soundboard simulation or an established realism improvement.
+
+The listening-approved piano palette uses `Piano(model="hammer_damped")`.
+`attack_presence=0.6` optionally lifts upper-register partials only during the onset
+(time constant 60 ms); C4 and below and the late tail retain the original source.
+The default is zero, preserving the accepted timbre. The onset option still needs
+listening assessment; it is not a pedal control.
