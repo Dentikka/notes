@@ -69,3 +69,22 @@ def test_out_of_harmonic_range_noise_is_visible_in_broadband_error():
     a = profile_note(tone(), SR, 220)
     b = profile_note(tone()+extra, SR, 220)
     assert compare_profiles(a, b)["broadband_mae_db"] > 3
+
+
+def test_set_audit_catches_regression_hidden_by_better_average():
+    from notes.ears.note_profile import audit_profile_set
+    ref = profile_note(tone(), SR, 220)
+    bad = profile_note(tone(second=1.8), SR, 220)
+    smaller_error = profile_note(tone(second=.5), SR, 220)
+    references = {"improved":ref,"regressed":ref}
+    old = {"improved":bad,"regressed":ref}
+    candidate = {"improved":ref,"regressed":smaller_error}
+    report = audit_profile_set(references, old, candidate)
+    assert report["candidate_mean_loss"] < report["baseline_mean_loss"]
+    assert report["no_regression"] is False
+    assert report["regressions"] == ["regressed"]
+    assert audit_profile_set(references, old, old)["no_regression"] is True
+    with pytest.raises(ValueError):
+        audit_profile_set(references, old, {"improved":ref})
+    with pytest.raises(ValueError):
+        audit_profile_set(references, old, old, regression_tolerance=float("nan"))

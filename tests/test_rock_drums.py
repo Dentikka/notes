@@ -69,3 +69,20 @@ def test_room_adds_early_reflections_and_a_short_tail():
     x[0] = 1.0
     y = Room(mix=0.3).process(x, RenderContext(sr=SR, bpm=120))
     assert y.shape == (2, x.size) and y[0, 0] == 1.0  # the dry signal passes untouched
+
+
+def test_kick_modal_controls_change_only_the_kick():
+    base = _hit("snare")
+    assert np.array_equal(base, _hit("snare", kick_damping=3, kick_body=0))
+    normal = _hit("kick")
+    damped = _hit("kick", kick_damping=3, kick_body=0)
+    assert not np.array_equal(normal, damped)
+    def high_over_low(y):
+        segment = y[SR//10:SR//3]
+        spec = abs(np.fft.rfft(segment*np.hanning(len(segment))))**2
+        hz = np.fft.rfftfreq(len(segment),1/SR)
+        return spec[(hz>100)&(hz<400)].sum()/spec[(hz>30)&(hz<90)].sum()
+    assert high_over_low(damped) < high_over_low(normal)
+    for kwargs in ({"kick_damping":0},{"kick_body":float("nan")}):
+        with pytest.raises(ValueError):
+            RockKit(**kwargs)
