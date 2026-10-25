@@ -287,3 +287,10 @@ The displacement construction follows the ideal-pluck formulation in
 The same known-note audit is exposed by the CLI:
 `notes audit-note reference.wav render.wav --pitch A3 -o report.json`.
 It does not infer a part from a mixture and does not label the instrument realistic.
+
+Note-audit metric version 2 uses the union of audible reference and candidate
+partials, so synthesized extra harmonics are penalized. A separate full-band
+spectral error also catches energy outside the analysed harmonic range. Version 1
+reference-only masked scores must not be used to claim a timbre improvement.
+The calibration examples are candidates: the finger-bass fit has a D2 regression,
+and the nylon fit is not transferable unchanged to steel-string guitars.
