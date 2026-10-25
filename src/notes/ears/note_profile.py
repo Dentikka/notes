@@ -5,6 +5,7 @@ Pitch is supplied explicitly, preventing octave/harmonic mistakes from being hid
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import numpy as np
@@ -140,3 +141,46 @@ def compare_profiles(reference: NoteProfile, candidate: NoteProfile) -> dict[str
         "partial_count": count,
         "seconds": float(end),
     }
+
+
+def note_profile_loss(report: Mapping[str, float | int]) -> float:
+    """Diagnostic calibration objective; not a perceptual-realism score."""
+    return float(report["harmonic_mae_db"] + 0.45*report["envelope_mae_db"]
+                 + 0.35*report["broadband_mae_db"])
+
+
+def audit_profile_set(
+    references: Mapping[str, NoteProfile],
+    baseline: Mapping[str, NoteProfile],
+    candidate: Mapping[str, NoteProfile],
+    *,
+    regression_tolerance: float = 0.0,
+) -> dict[str, object]:
+    """Report every note regression even when the average candidate improves.
+
+    All three mappings must cover exactly the same nonempty case set. A tolerance
+    of .02 allows at most a 2% per-case increase. Passing this diagnostic guard
+    does not establish realism; pitch/attack and individual metrics remain visible.
+    """
+    if not references or set(references) != set(baseline) or set(references) != set(candidate):
+        raise ValueError("reference, baseline and candidate must have identical nonempty case IDs")
+    if not np.isfinite(regression_tolerance) or regression_tolerance < 0:
+        raise ValueError("regression_tolerance must be finite and nonnegative")
+    reports = {}
+    regressions = []
+    before, after = [], []
+    for key in sorted(references):
+        old = compare_profiles(references[key], baseline[key])
+        new = compare_profiles(references[key], candidate[key])
+        old_loss, new_loss = note_profile_loss(old), note_profile_loss(new)
+        regressed = new_loss > old_loss*(1+regression_tolerance)+1e-6
+        if regressed:
+            regressions.append(key)
+        reports[key] = {"baseline": old, "candidate": new, "baseline_loss": old_loss,
+                        "candidate_loss": new_loss, "regressed": regressed}
+        before.append(old_loss)
+        after.append(new_loss)
+    return {"status": "diagnostic-only", "profile_metric_version": 2,
+            "baseline_mean_loss": float(np.mean(before)), "candidate_mean_loss": float(np.mean(after)),
+            "no_regression": not regressions, "regressions": regressions,
+            "regression_tolerance": regression_tolerance, "cases": reports}
