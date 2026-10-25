@@ -9,7 +9,9 @@ def render(instrument, vel=0.8, params=None, sr=22050):
                             RenderContext(sr, 60), np.random.default_rng(7))
 
 
-@pytest.mark.parametrize("instrument", [Piano(), Piano(model="soundboard"), Violin(vibrato=0), Cello(vibrato=0)])
+@pytest.mark.parametrize("instrument", [
+    Piano(), Piano(model="soundboard"), Piano(model="hammer"), Violin(vibrato=0), Cello(vibrato=0),
+])
 def test_tuning_roundtrip_and_dynamics(instrument):
     assert build_instrument(instrument.to_spec()) == instrument
     y = render(instrument)
@@ -63,3 +65,22 @@ def test_soundboard_retains_upper_partials_after_attack():
 def test_soundboard_zero_velocity_and_low_sample_rate():
     assert not np.any(render(Piano(model="soundboard"), vel=0))
     assert np.isfinite(render(Piano(model="soundboard"), sr=8000)).all()
+
+
+@pytest.mark.parametrize("pitch", [24, 48, 72, 96])
+def test_hammer_contact_registers_and_silence(pitch):
+    from notes.engine.hammer import struck_string
+    freq = 440 * 2 ** ((pitch - 69) / 12)
+    y = struck_string(freq, 22050, 22050, 0.8)
+    assert np.isfinite(y).all() and 1e-5 < abs(y).max() < 10
+    assert not np.any(struck_string(freq, 2205, 22050, 0))
+
+
+def test_hammer_velocity_changes_normalized_spectrum():
+    from notes.engine.hammer import struck_string
+    def centroid(velocity):
+        y = struck_string(220, 11025, 22050, velocity)
+        power = abs(np.fft.rfft(y * np.hanning(len(y)))) ** 2
+        freq = np.fft.rfftfreq(len(y), 1 / 22050)
+        return (freq @ power) / power.sum()
+    assert centroid(0.95) > centroid(0.25)

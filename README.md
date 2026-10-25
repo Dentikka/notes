@@ -250,3 +250,9 @@ velocity_brightness=0.4)` enables two-stage string decay and velocity-dependent
 picking hardness. These variants are experimental: listening rejected the brighter piano and guitar
 settings. The instrument palette uses the baseline settings; neither piano nor clean
 guitars have established realism.
+
+`Piano(model="hammer")` is an experimental procedural alternative: a compression-only
+felt contact couples a moving hammer to damped string modes. The contact runs at
+at least 176.4 kHz; free ringing is evaluated analytically. Velocity sets the impact
+speed rather than merely scaling a predefined spectrum. It is a simplified model,
+not a calibrated acoustic piano. This does not change the default palette.
