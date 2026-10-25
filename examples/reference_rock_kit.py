@@ -13,4 +13,4 @@ hat = Track("hat", RockKit(), gain=-2)
 beat = stack(kick(steps(kick="X...X.X.", step=0.5)),
              snare(steps(snare="..X...X.", step=0.5)),
              hat(steps(hat="XxXxXxXx", step=0.5)))
-song = Song(beat * 2, bpm=96, seed=17, loudness=-20, title="Procedural reference kick groove")
+song = Song(beat * 2, bpm=96, seed=17, loudness=-22, title="Procedural reference kick groove")

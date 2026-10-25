@@ -292,8 +292,10 @@ Note-audit metric version 2 uses the union of audible reference and candidate
 partials, so synthesized extra harmonics are penalized. A separate full-band
 spectral error also catches energy outside the analysed harmonic range. Version 1
 reference-only masked scores must not be used to claim a timbre improvement.
-The calibration examples are candidates: the finger-bass fit has a D2 regression,
-and the nylon fit is not transferable unchanged to steel-string guitars.
+The finger-bass example passes the diagnostic no-regression guard on twelve
+recorded E1-D#2 notes, including eight unseen notes and two synthesis seeds.
+Other registers/techniques remain unverified. The nylon fit is not transferable
+unchanged to steel-string guitars.
 
 `audit_profile_set(references, baseline, candidate)` reports regressions for every
 case, including when the mean improves. All case IDs must match. Its no-regression
@@ -302,3 +304,7 @@ flag concerns diagnostic features only, not perceptual realism.
 `RockKit(kick_damping=..., kick_body=...)` exposes frequency-dependent head losses
 and the second-head share of the kick model. Defaults preserve the existing kit;
 these are procedural modal parameters, not recorded samples.
+
+`examples/reference_rock_kit.py` combines the reference-calibrated kick and a
+procedurally generated room with the unchanged baseline snare and hats. The
+alternative snare fit remains experimental rather than replacing the baseline.
