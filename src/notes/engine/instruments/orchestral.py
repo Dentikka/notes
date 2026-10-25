@@ -27,6 +27,8 @@ class Piano(Instrument):
     brightness controls hammer hardness, detune is unison spread in cents.
     model="soundboard" enables hammer-position coloration and two-stage decay;
     model="hammer" integrates a nonlinear felt contact exciting string modes.
+    model="hammer_damped" additionally softens the modal readout above A2; it is
+    an experimental register correction, not a complete soundboard model.
     legacy preserves the original renderer.
     """
 
@@ -41,8 +43,8 @@ class Piano(Instrument):
     level: float = 0.45
 
     def __post_init__(self) -> None:
-        if self.model not in ("legacy", "soundboard", "hammer"):
-            raise ValueError("model must be legacy, soundboard or hammer")
+        if self.model not in ("legacy", "soundboard", "hammer", "hammer_damped"):
+            raise ValueError("model must be legacy, soundboard, hammer or hammer_damped")
         _positive(sustain=self.sustain, release=self.release)
         for name in ("brightness", "detune", "stiffness", "hammer", "level"):
             value = getattr(self, name)
@@ -53,14 +55,15 @@ class Piano(Instrument):
         return max(self.release, self.sustain)
 
     def voice(self, v: Voice, ctx: RenderContext, rng: np.random.Generator) -> np.ndarray:
-        if self.model == "hammer":
+        if self.model in ("hammer", "hammer_damped"):
             from notes.engine.hammer import struck_string
 
             pedal = bool(v.params.get("pedal", False))
             tail = self.release_time() if pedal else self.release
             n = ctx.samples(v.dur + tail)
             y = struck_string(v.freq, n, ctx.sr, v.vel, brightness=self.brightness,
-                              stiffness=self.stiffness, sustain=self.sustain, detune=self.detune)
+                              stiffness=self.stiffness, sustain=self.sustain, detune=self.detune,
+                              radiation=self.model == "hammer_damped")
             if not pedal:
                 y *= adsr(ctx.samples(v.dur), n, ctx.sr, 0.001, 0.01, 1, self.release)
             count = min(n, ctx.samples(0.01))

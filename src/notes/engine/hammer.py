@@ -11,7 +11,7 @@ from scipy.signal import resample_poly
 
 def struck_string(freq: float, n: int, sr: int, velocity: float, *,
                   brightness: float = 0.65, stiffness: float = 0.00012,
-                  sustain: float = 8.0, detune: float = 1.4) -> np.ndarray:
+                  sustain: float = 8.0, detune: float = 1.4, radiation: bool = False) -> np.ndarray:
     """Return bridge-velocity-like output following one felt hammer impact.
 
     Frequencies and stiffness define the modes, velocity the initial hammer speed.
@@ -33,6 +33,10 @@ def struck_string(freq: float, n: int, sr: int, velocity: float, *,
     omega = 2 * np.pi * frequencies
     coupling = np.sin(np.pi * k * 0.135)
     bridge = np.sin(np.pi * k * 0.965)
+    # The old near-bridge velocity tap boosts overtones relative to the fundamental.
+    # Blend a displacement-like modal readout above A2; A2 and below remain identical.
+    register = float(np.clip(np.log2(freq / 110) / 2.6, 0, 1)) if radiation else 0.0
+    bridge *= k ** (-1.2 * register)
     mass = 0.012 * (220 / freq) ** 0.35
     hammer_mass = 0.007 * (220 / freq) ** 0.15
     # Force constant has units for the chosen power law; hardness sets felt stiffness.
@@ -42,6 +46,8 @@ def struck_string(freq: float, n: int, sr: int, velocity: float, *,
     q, speed = np.zeros(len(k)), np.zeros(len(k))
     c, s = np.cos(omega * dt), np.sin(omega * dt)
     t60 = sustain * (220 / freq) ** 0.28 / (1 + 0.045 * (k - 1) ** 1.2)
+    # Frequency-dependent loss is additional to the original per-mode decay.
+    t60 /= 1 + register * (frequencies / 1400) ** 1.2
     damping = np.exp(-np.log(1000) * dt / t60)
     contact_samples = min(n * factor, int(0.025 * rate))
     contact = np.zeros(contact_samples)
