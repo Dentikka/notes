@@ -12,12 +12,15 @@ from scipy.signal import resample_poly
 def struck_string(freq: float, n: int, sr: int, velocity: float, *,
                   brightness: float = 0.65, stiffness: float = 0.00012,
                   sustain: float = 8.0, detune: float = 1.4, radiation: bool = False,
-                  attack_presence: float = 0.0) -> np.ndarray:
+                  attack_presence: float = 0.0, hammer_mass_scale: float = 1.0) -> np.ndarray:
     """Return bridge-velocity-like output following one felt hammer impact.
 
     Frequencies and stiffness define the modes, velocity the initial hammer speed.
     The contact has a compression-only power-law force; no prerecorded excitation.
+    hammer_mass_scale changes the physical impact, not an output equalizer.
     """
+    if not np.isfinite(hammer_mass_scale) or not 0.25 <= hammer_mass_scale <= 4:
+        raise ValueError("hammer_mass_scale must be between 0.25 and 4")
     if n <= 0:
         return np.zeros(0)
     if velocity <= 0:
@@ -43,6 +46,7 @@ def struck_string(freq: float, n: int, sr: int, velocity: float, *,
     onset_lift = 0.4 * attack_presence * upper * (1 - 1 / k)
     mass = 0.012 * (220 / freq) ** 0.35
     hammer_mass = 0.007 * (220 / freq) ** 0.15
+    hammer_mass *= hammer_mass_scale
     # Force constant has units for the chosen power law; hardness sets felt stiffness.
     felt = 2.0e9 * (0.45 + brightness)
     exponent = 2.3

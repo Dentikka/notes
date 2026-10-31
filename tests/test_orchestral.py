@@ -113,3 +113,33 @@ def test_attack_presence_preserves_low_register_and_late_tail():
     assert relative(base[11025:], changed[11025:]) < 0.0001
     with pytest.raises(ValueError):
         Piano(attack_presence=1.1)
+
+
+def test_hammer_mass_changes_contact_spectrum_and_supports_per_note_override():
+    piano = Piano(model="hammer_damped", hammer_mass_scale=1.7)
+    assert build_instrument(piano.to_spec()) == piano
+    changed = render(piano)
+    original = render(Piano(model="hammer_damped"))
+    # Equal output level cannot explain a changed normalized spectrum.
+    a, b = original/np.linalg.norm(original), changed/np.linalg.norm(changed)
+    assert np.linalg.norm(a-b) > 0.1
+    assert np.array_equal(changed, render(Piano(model="hammer_damped"), params={"hammer_mass_scale": 1.7}))
+    assert np.array_equal(original, render(piano, params={"hammer_mass_scale": 1.0}))
+
+
+@pytest.mark.parametrize("mass", [0.25, 4.0])
+@pytest.mark.parametrize("freq", [65.4064, 1046.5023, 2093.0045])
+def test_hammer_mass_extremes_are_finite_and_end_smoothly(mass, freq):
+    piano = Piano(model="hammer_damped", hammer_mass_scale=mass)
+    y = piano.voice(Voice(freq, 69+12*np.log2(freq/440), .2, .8, {}),
+                    RenderContext(22050, 60), np.random.default_rng(7))
+    assert np.isfinite(y).all() and 1e-7 < abs(y).max() < 10
+    assert abs(y[-1]) < 1e-10
+
+
+@pytest.mark.parametrize("mass", [0.0, .2, 4.1, float("nan"), float("inf")])
+def test_hammer_mass_rejects_invalid_constructor_and_note_values(mass):
+    with pytest.raises(ValueError, match="hammer_mass_scale"):
+        Piano(hammer_mass_scale=mass)
+    with pytest.raises(ValueError, match="hammer_mass_scale"):
+        render(Piano(model="hammer_damped"), params={"hammer_mass_scale": mass})
