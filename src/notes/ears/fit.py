@@ -65,6 +65,7 @@ def fit_reference(
     each trial as JSONL, so an interrupted search still leaves useful evidence.
     An optional ``objective`` consumes the aligned audio and diagnostic report;
     otherwise the existing fit_loss is used. It must return a finite scalar.
+    Custom objectives also receive preserved edge context for encoder comparisons.
     """
     if passes < 1 or max_evaluations < 1 or not np.isfinite(max_lag) or max_lag < 0:
         raise ValueError("passes/budget must be positive and max_lag finite and nonnegative")
@@ -80,7 +81,8 @@ def fit_reference(
         key = tuple(sorted(settings.items()))
         if key in cache:
             return cache[key][0]
-        comp = compare(reference, render(dict(settings)), sr=sr, max_lag=max_lag)
+        comp = compare(reference, render(dict(settings)), sr=sr, max_lag=max_lag,
+                       preserve_context=objective is not None)
         loss = float(fit_loss(comp.report) if objective is None else objective(comp))
         if not np.isfinite(loss):
             raise ValueError("nonfinite fitting objective")

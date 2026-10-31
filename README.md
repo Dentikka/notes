@@ -326,6 +326,20 @@ It uses the last layer with temporal mean pooling and overlapping windows of at
 most 10 seconds, and executes no model-repository Python. The regular comparison
 path does not load MERT or require its weights.
 
+Time alignment may otherwise cut an early attack or a late tail. MERT comparisons
+therefore retain padded edge context while leaving the ordinary diagnostic interval
+unchanged. In Python, use `compare(..., preserve_context=True)` followed by
+`ear.similarity(comparison)`; custom fit objectives receive that context automatically.
+`notes compare --preserve-context` also keeps these edges in A/B files without
+loading an encoder; `--mert` enables it automatically.
+
+For isolated short hits, `--mert-trim` or `trim_edges=True` uses a fixed -40 dB RMS
+edge gate with 10/20 ms margins and at least 100 ms of input. Interior pauses remain.
+This is opt-in: quiet tails can dominate mean pooling on percussion. The JSON records
+the mode, edge-context duration and analysis revision; scores from different modes
+are not interchangeable. Low C2 cello controls remain unresolved, so MERT must not
+be used as an unrestricted judge across instruments.
+
 The fixed representation preferred the listening-approved piano over the rejected
 hammer version in six register/dynamic comparisons and detected seven +2-semitone
 controls. This is a small calibration, not a realism certificate or validation of
