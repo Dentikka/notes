@@ -39,7 +39,9 @@ def profile_note(audio: np.ndarray, sr: int, f0: float, *, harmonics: int = 20) 
     if not np.isfinite(f0) or not 20 <= f0 < sr / 4 or harmonics < 2:
         raise ValueError("invalid f0 or harmonic count")
     size = max(8, round(sr * 0.005))
-    energy = uniform_filter1d(x*x, size=size, mode="constant")
+    # Running-sum cancellation can leave a tiny negative residue after a note
+    # ends. Energy is nonnegative, including over an exactly silent tail.
+    energy = np.maximum(0, uniform_filter1d(x*x, size=size, mode="constant"))
     peak = float(np.sqrt(energy.max()))
     if peak < 1e-8:
         raise ValueError("silent note")
@@ -77,7 +79,7 @@ def profile_note(audio: np.ndarray, sr: int, f0: float, *, harmonics: int = 20) 
         band = abs(freq-freq[at]) < max(sr/nfft*2, measured*0.07)
         partials.append(10*np.log10(power[band].sum(axis=0)+1e-20))
     # RMS is measured separately from STFT harmonic energy, so noise is not ignored.
-    envelope = np.sqrt(uniform_filter1d(x*x, size=max(1, round(sr*0.01)), mode="constant"))
+    envelope = np.sqrt(np.maximum(0, uniform_filter1d(x*x, size=max(1, round(sr*0.01)), mode="constant")))
     indices = np.minimum((time*sr).astype(int), len(envelope)-1)
     rms_db = 20*np.log10(envelope[indices]+1e-12)
     first = envelope[:min(len(envelope), round(sr*0.6))]

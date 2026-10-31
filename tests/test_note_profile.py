@@ -31,6 +31,18 @@ def test_wrong_timbre_pitch_and_decay_are_visible():
     assert short["envelope_mae_db"] > 4
 
 
+def test_fast_decay_followed_by_exact_silence_has_finite_envelope():
+    t = np.arange(SR*2)/SR
+    x = np.sin(2*np.pi*220*t)*np.exp(-t*15)
+    x[SR:] = 0
+    with np.errstate(invalid="raise"):
+        measured = profile_note(x, SR, 220)
+    assert np.isfinite(measured.rms_db).all()
+    report = compare_profiles(measured, measured)
+    assert np.isfinite(list(report.values())).all()
+    assert report["envelope_mae_db"] < 1e-9
+
+
 @pytest.mark.parametrize("x", [np.zeros(SR), np.zeros((2, SR)), np.full(SR, np.nan)])
 def test_invalid_note_rejected(x):
     with pytest.raises(ValueError):
