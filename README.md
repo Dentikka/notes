@@ -271,6 +271,16 @@ This option is not an established improvement or a pedal control. A stronger loc
 attack experiment increased reference-spectrum errors on A4 and E5, so it was not
 added to the instrument. The approved preset remains unchanged.
 
+`Piano(model="hammer_damped", hammer_mass_scale=1.7)` changes the nonlinear
+contact by multiplying the moving hammer's mass. The range is 0.25..4, default 1;
+`note.param(hammer_mass_scale=...)` overrides individual impacts. Both hammer
+models support it; legacy and soundboard ignore it. It changes contact excitation
+and therefore needs loudness matching when comparing timbres. It is not a pedal
+or output-brightness control. A frozen 1.7x candidate improved the MERT diagnostic
+on four of five new upper-register recordings, but harmonic error increased on G5
+and the C6 embedding slightly regressed. It remains an optional experiment; the
+listening-approved preset is unchanged.
+
 Known-note reference diagnostics are available in `notes.ears.note_profile`:
 `profile_note(mono, sr, expected_f0)` measures tuning, harmonic envelopes and attack;
 `compare_profiles(reference, candidate)` separates harmonic, envelope, pitch and
@@ -349,8 +359,9 @@ Model: [MERT: Acoustic Music Understanding Model with Large-Scale Self-supervise
 `fit_reference(..., objective=callback)` optionally scores the complete `Comparison`
 with aligned reference/render audio and the ordinary diagnostic report. The existing
 objective remains the default. A CLI fit script may likewise define `objective(comp)`
-and `objective_name`; the name is saved with its result. This permits a cached MERT
-reference embedding to guide a search while retaining the independent timing,
+and `objective_name`; the name is saved with its result. For MERT, use
+`ear.similarity(comp)`: alignment-dependent padding means a cached reference
+vector is not generally interchangeable between trials. This retains the independent timing,
 spectrum and envelope measurements. A better embedding score alone is not an
 acceptance criterion for the generated instrument.
 

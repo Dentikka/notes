@@ -31,12 +31,16 @@ class Piano(Instrument):
     an experimental register correction, not a complete soundboard model.
     attack_presence=0..1 adds a small upper-register onset lift in hammer models;
     the default 0 preserves the accepted hammer_damped timbre.
+    hammer_mass_scale=0.25..4 multiplies the hammer mass in the contact models;
+    individual notes may override it with the same parameter. Default 1 preserves
+    the original impact. This control is unused by legacy and soundboard models.
     legacy preserves the original renderer.
     """
 
     program: int | None = 0
     model: str = "legacy"
     attack_presence: float = 0.0
+    hammer_mass_scale: float = 1.0
     sustain: float = 8.0
     brightness: float = 0.65
     detune: float = 1.4
@@ -50,6 +54,8 @@ class Piano(Instrument):
             raise ValueError("model must be legacy, soundboard, hammer or hammer_damped")
         if not np.isfinite(self.attack_presence) or not 0 <= self.attack_presence <= 1:
             raise ValueError("attack_presence must be between 0 and 1")
+        if not np.isfinite(self.hammer_mass_scale) or not 0.25 <= self.hammer_mass_scale <= 4:
+            raise ValueError("hammer_mass_scale must be between 0.25 and 4")
         _positive(sustain=self.sustain, release=self.release)
         for name in ("brightness", "detune", "stiffness", "hammer", "level"):
             value = getattr(self, name)
@@ -68,7 +74,8 @@ class Piano(Instrument):
             n = ctx.samples(v.dur + tail)
             y = struck_string(v.freq, n, ctx.sr, v.vel, brightness=self.brightness,
                               stiffness=self.stiffness, sustain=self.sustain, detune=self.detune,
-                              radiation=self.model == "hammer_damped", attack_presence=self.attack_presence)
+                              radiation=self.model == "hammer_damped", attack_presence=self.attack_presence,
+                              hammer_mass_scale=v.params.get("hammer_mass_scale", self.hammer_mass_scale))
             if not pedal:
                 y *= adsr(ctx.samples(v.dur), n, ctx.sr, 0.001, 0.01, 1, self.release)
             count = min(n, ctx.samples(0.01))
