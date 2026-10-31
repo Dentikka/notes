@@ -287,6 +287,23 @@ original steel/electric/bass excitation defaults. Realism is not yet established
 The displacement construction follows the ideal-pluck formulation in
 [Julius O. Smith, Physical Audio Signal Processing: The Ideal Plucked String](https://www.dsprelated.com/freebooks/pasp/Ideal_Plucked_String.html).
 
+`AcousticGuitar(model="coupled")` is a separate experimental string/body model:
+positive-mass designed body resonances absorb string energy as well as color its
+output. Reactive bridge loading is compensated to retain the requested fundamental.
+`coupling` controls mobility and `radiation=0..1` moves from bridge velocity toward
+acceleration. `body_size`, `diffuse`, the decay and pick controls remain available;
+`body` and `excitation` select behavior only in the original `model="waveguide"`.
+Both models accept per-note `pick_position` and `pick_hardness` overrides.
+
+The coupled example `examples/reference_coupled_acoustic.py` reduced the mean
+diagnostic error on nine unseen Seagull recordings by about 19%, with no per-case
+regression at either of two seeds. Low E2 still regresses on the development set.
+CLAP similarity decreased on all nine recordings, so the evidence is conflicting
+and the example is not adopted as a quality improvement. The frequency-domain model approximates
+bends by resampling and omits mutual coupling between separate strings. Existing
+acoustic and nylon defaults remain unchanged. The boundary equations follow
+[Euphonics: Coupling a string to the instrument body](https://euphonics.org/5-1-1-coupling-a-string-to-the-instrument-body/).
+
 The same known-note audit is exposed by the CLI:
 `notes audit-note reference.wav render.wav --pitch A3 -o report.json`.
 It does not infer a part from a mixture and does not label the instrument realistic.

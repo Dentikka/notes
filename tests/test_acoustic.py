@@ -54,12 +54,13 @@ def test_body_rings_at_the_sound_hole():
     assert around_1k == pytest.approx(0.0, abs=0.5)
 
 
-def test_acoustic_sits_near_the_electric_in_level():
+@pytest.mark.parametrize("model", ["waveguide", "coupled"])
+def test_acoustic_sits_near_the_electric_in_level(model):
     def loudness(instrument):
         return Song(Track("g", instrument)(melody("[E3,B3,E4,G#4]@4", step=1)), bpm=60).render().stats["tracks"]["g"][
             "lufs_in_mix"]
 
-    assert abs(loudness(AcousticGuitar()) - loudness(ElectricGuitar(drive=0.06, tone=0.5))) < 8.0
+    assert abs(loudness(AcousticGuitar(model=model)) - loudness(ElectricGuitar(drive=0.06, tone=0.5))) < 8.0
 
 
 def test_fretting_changes_timbre_for_the_same_pitch_on_different_strings():
@@ -87,3 +88,15 @@ def test_nylon_variant_is_in_tune_and_has_softer_upper_spectrum():
     steel = _note(AcousticGuitar(), 57, seconds=1)
     a = abs(np.fft.rfft(steel*np.hanning(len(steel))))**2
     assert spec[hz>2000].sum()/spec.sum() < a[hz>2000].sum()/a.sum()
+
+
+@pytest.mark.parametrize("model", ["waveguide", "coupled"])
+def test_per_note_pick_controls_and_validation(model):
+    ctx = RenderContext(22050, 60)
+    instrument = AcousticGuitar(model=model, polarization=0, pick_noise=0)
+    def voice(params):
+        return instrument.voice(Voice(220, 57, .5, .8, params), ctx, np.random.default_rng(17))
+    assert not np.allclose(voice({}), voice({"pick_position": .3, "pick_hardness": .2}))
+    for params in ({"pick_position": 0}, {"pick_position": float("nan")}, {"pick_hardness": 1.1}):
+        with pytest.raises(ValueError):
+            voice(params)
