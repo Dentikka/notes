@@ -48,6 +48,36 @@ def test_a_late_quiet_render_is_aligned_and_matched_in_loudness():
     assert rep["tone"]["rms_db"] < 0.3 and rep["onsets"]["f1"] == 1.0
 
 
+def test_optional_embedding_context_keeps_an_early_transient_alignment_would_discard():
+    x = _arpeggio(ARPEGGIO)
+    late = np.pad(x, ((0, 0), (int(.03*SR), 0)))
+    late[:, 0] = .25
+    ordinary = compare(x, late, max_lag=.05)
+    context = compare(x, late, max_lag=.05, preserve_context=True)
+    assert ordinary.report == context.report
+    assert context.report["seconds"] == x.shape[-1]/SR
+    assert abs(context.report["alignment"]["lag_ms"]-30) < 3
+    assert context.reference_context.shape == context.render_context.shape
+    assert context.render_context.shape[-1] > context.render.shape[-1]
+    assert np.max(abs(context.reference_context[:, 0])) == 0
+    assert np.min(context.render_context[:, 0]) > .1
+    ab, toggle = listening(context, context=True, gap=.5)
+    count = context.reference_context.shape[-1]
+    assert ab.shape[-1] == 2*count+SR//2 and toggle.shape[-1] == count
+    assert np.min(ab[:, count+SR//2]) > .1
+
+
+def test_optional_embedding_context_keeps_the_tail_when_delaying_the_render():
+    x = _arpeggio(ARPEGGIO)
+    reference = np.pad(x, ((0, 0), (int(.03*SR), 0)))
+    candidate = np.pad(x, ((0, 0), (0, int(.03*SR))))
+    candidate[:, -1] = .25
+    context = compare(reference, candidate, max_lag=.05, preserve_context=True)
+    assert abs(context.report["alignment"]["lag_ms"]+30) < 3
+    assert np.min(context.render_context[:, -1]) > .1
+    assert np.max(abs(context.reference_context[:, -1])) == 0
+
+
 def test_a_brighter_render_shows_in_the_tone_curve():
     x = _arpeggio(ARPEGGIO)
     # zero phase, so the boost adds up: +6 dB well above 3 kHz, nothing well below

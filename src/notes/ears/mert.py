@@ -9,11 +9,16 @@ import hashlib
 import json
 from math import gcd
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
+from scipy.ndimage import uniform_filter1d
 from scipy.signal import resample_poly
 
-from notes.ears.clap import windows
+from notes.ears.clap import cosine, windows
+
+if TYPE_CHECKING:
+    from notes.ears.compare import Comparison
 
 __all__ = ["MERT_MODEL", "MERT_RATE", "MERT_REVISION", "MertEar", "to_mert_rate"]
 
@@ -25,6 +30,18 @@ _HASHES = {
     "preprocessor_config.json": "cc5a5e4a5d3b1a758a5ed984b2eaa15bb0522d811d44a9eed82bfca4baa0dc8f",
     "pytorch_model.bin": "a2b8b747f72c06e0595aeae41ae5473f4364938c6b39b2c58be38c48e6bd3fcd",
 }
+
+
+def _trim_event(mono: np.ndarray) -> np.ndarray:
+    """Fixed -40 dB RMS edge gate for single events; interior pauses are retained."""
+    energy = np.maximum(0, uniform_filter1d(mono*mono, size=round(MERT_RATE*.005)))
+    active = np.flatnonzero(energy > energy.max()*1e-4)
+    if not len(active):
+        raise ValueError("MERT event has no active samples")
+    start = max(0, int(active[0])-round(MERT_RATE*.01))
+    end = min(len(mono), max(start+round(MERT_RATE*.1), int(active[-1])+round(MERT_RATE*.02)))
+    start = max(0, min(start, end-round(MERT_RATE*.1)))
+    return mono[start:end]
 
 
 def to_mert_rate(audio: np.ndarray, sr: int) -> np.ndarray:
@@ -81,9 +98,11 @@ class MertEar:
         self._torch = torch
         self.device = device
 
-    def embed_audio(self, audio: np.ndarray, sr: int) -> np.ndarray:
-        """Unit vector for reference comparison; no text tags or realism label."""
+    def embed_audio(self, audio: np.ndarray, sr: int, *, trim_edges: bool = False) -> np.ndarray:
+        """Unit vector; optional fixed quiet-edge trimming is intended for single hits."""
         mono = to_mert_rate(audio, sr)
+        if trim_edges:
+            mono = _trim_event(mono)
         vectors = []
         for window in windows(mono, sr=MERT_RATE):
             if float(np.std(window)) < 1e-8:
@@ -102,3 +121,12 @@ class MertEar:
         if norm < 1e-12:
             raise ValueError("MERT window embeddings cancel")
         return result/norm
+
+    def similarity(self, comparison: Comparison, *, trim_edges: bool = False) -> float:
+        """Compare preserved edge context, without losing attacks to time alignment."""
+        from notes.ears.compare import ANALYSIS_RATE
+
+        if comparison.reference_context is None or comparison.render_context is None:
+            raise ValueError("MERT similarity requires compare(..., preserve_context=True)")
+        return cosine(self.embed_audio(comparison.reference_context, ANALYSIS_RATE, trim_edges=trim_edges),
+                      self.embed_audio(comparison.render_context, ANALYSIS_RATE, trim_edges=trim_edges))

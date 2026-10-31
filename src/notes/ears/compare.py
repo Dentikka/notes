@@ -63,12 +63,16 @@ _CHROMA_DIP = 0.75
 @dataclass(frozen=True)
 class Comparison:
     """The numbers (`report`, JSON-ready), the aligned and loudness-matched signals at
-    `ANALYSIS_RATE`, and the curves behind the numbers (`traces`, for plots)."""
+    `ANALYSIS_RATE`, and the curves behind the numbers (`traces`, for plots).
+    Optional context signals retain alignment-discarded edges for audio encoders.
+    """
 
     report: dict[str, Any]
     reference: np.ndarray
     render: np.ndarray
     traces: dict[str, Any]
+    reference_context: np.ndarray | None = None
+    render_context: np.ndarray | None = None
 
 
 def load(path: str | Path, *, start: float = 0.0, end: float | None = None, sr: int = ANALYSIS_RATE) -> np.ndarray:
@@ -318,11 +322,17 @@ def _flutter(mel: np.ndarray, steady: np.ndarray) -> float:
     return round(float(np.abs(np.diff(mel, axis=1))[steady].mean()), 2) if steady.any() else 0.0
 
 
-def compare(reference: np.ndarray, render: np.ndarray, sr: int = ANALYSIS_RATE, *, max_lag: float = 1.0) -> Comparison:
+def compare(reference: np.ndarray, render: np.ndarray, sr: int = ANALYSIS_RATE, *, max_lag: float = 1.0,
+            preserve_context: bool = False) -> Comparison:
     """Align `render` to `reference` (both ``(channels, samples)`` at `sr`; the render may be
-    shifted by up to `max_lag` seconds either way), match its loudness, and measure both."""
+    shifted by up to `max_lag` seconds either way), match its loudness, and measure both.
+
+    ``preserve_context`` additionally retains padded edge context for embeddings.
+    It does not change the main interval, existing measurements or listening files.
+    """
     ref = _stereo(_resample(np.atleast_2d(reference), sr, ANALYSIS_RATE))
     est = _stereo(_resample(np.atleast_2d(render), sr, ANALYSIS_RATE))
+    original_est = est if preserve_context else None
     ref_lufs, est_lufs = lufs(ref, ANALYSIS_RATE), lufs(est, ANALYSIS_RATE)
     if not (np.isfinite(ref_lufs) and np.isfinite(est_lufs)):
         raise ValueError("Both signals need sound to be compared")
@@ -398,14 +408,31 @@ def compare(reference: np.ndarray, render: np.ndarray, sr: int = ANALYSIS_RATE, 
     }
     traces = {"t": t, "mel": (mel_a, mel_b), "floor": floor, "envelopes": envelopes,
               "onsets": (onsets_ref, onsets_est), "chroma_t": tc, "chroma_similarity": sim}
-    return Comparison(report, ref, est, traces)
+    reference_context, render_context = None, None
+    if preserve_context:
+        if shift == 0:
+            reference_context, render_context = ref, est
+        else:
+            # Keep the main diagnostic interval unchanged. For semantic pooling,
+            # include the edge the alignment would otherwise discard: an attack
+            # before the interval or a tail after it is still audible evidence.
+            reference_context = np.pad(ref, ((0, 0), (max(shift, 0), max(-shift, 0))))
+            render_context = _shift(original_est, min(shift, 0), ref.shape[-1]+abs(shift))
+            render_context = render_context * 10.0 ** (gain/20.0)
+    return Comparison(report, ref, est, traces, reference_context, render_context)
 
 
-def listening(comp: Comparison, *, block: float = 2.0, gap: float = 0.8) -> tuple[np.ndarray, np.ndarray]:
+def listening(comp: Comparison, *, block: float = 2.0, gap: float = 0.8,
+              context: bool = False) -> tuple[np.ndarray, np.ndarray]:
     """Two files for the ear, at the same loudness: the reference, a pause and the render; and
     both at once toggling every `block` seconds (reference first) at the same point of the
-    music, with 10 ms crossfades."""
+    music, with 10 ms crossfades. ``context=True`` includes alignment edge context.
+    """
     ref, est = comp.reference, comp.render
+    if context:
+        if comp.reference_context is None or comp.render_context is None:
+            raise ValueError("listening context requires compare(..., preserve_context=True)")
+        ref, est = comp.reference_context, comp.render_context
     scale = 0.98 / max(float(np.max(np.abs(ref))), float(np.max(np.abs(est))), 1e-9)
     ref, est = ref * min(scale, 1.0), est * min(scale, 1.0)
     pause = np.zeros((2, int(gap * ANALYSIS_RATE)))

@@ -188,8 +188,13 @@ def _compare(args: argparse.Namespace) -> int:
 
     reference, render = Path(args.reference).resolve(), Path(args.render).resolve()
     start = _seconds(args.start) or 0.0
-    comp = compare(load(reference, start=start, end=_seconds(args.end)), load(render), max_lag=args.max_lag)
+    preserve_context = args.preserve_context or args.mert
+    comp = compare(load(reference, start=start, end=_seconds(args.end)), load(render), max_lag=args.max_lag,
+                   preserve_context=preserve_context)
     report = {"reference": str(reference), "reference_start_s": start, "render": str(render), **comp.report}
+    if preserve_context:
+        report["listening_context"] = {"seconds": comp.reference_context.shape[-1]/ANALYSIS_RATE,
+                                       "preserves_alignment_edges": True}
     if args.clap:
         from notes.ears import Ear, cosine
 
@@ -197,13 +202,15 @@ def _compare(args: argparse.Namespace) -> int:
         report["clap"] = {"cosine": round(cosine(ear.embed_audio(comp.reference, ANALYSIS_RATE),
                                                  ear.embed_audio(comp.render, ANALYSIS_RATE)), 4)}
     if args.mert:
-        from notes.ears import MertEar, cosine
+        from notes.ears import MertEar
 
         ear = MertEar(local_path=args.mert_path)
         report["mert"] = {
-            "cosine": round(cosine(ear.embed_audio(comp.reference, ANALYSIS_RATE),
-                                   ear.embed_audio(comp.render, ANALYSIS_RATE)), 6),
+            "cosine": round(ear.similarity(comp, trim_edges=args.mert_trim), 6),
             "model": ear.model_name, "revision": ear.revision, "status": "diagnostic-only",
+            "edge_context_ms": round(1000*(comp.reference_context.shape[-1]-comp.reference.shape[-1])/ANALYSIS_RATE, 3),
+            "trim_quiet_edges": args.mert_trim,
+            "analysis_git_revision": _git_revision(),
         }
     out = Path(args.out).resolve() if args.out else render.parent
     out.mkdir(parents=True, exist_ok=True)
@@ -214,7 +221,7 @@ def _compare(args: argparse.Namespace) -> int:
     written = [_write_json(stem.with_name(stem.name + ".json"), report),
                comparison(comp, stem.with_name(stem.name + ".png"), f"{render.name} vs {reference.name}")]
     if not args.no_ab:
-        ab, toggle = listening(comp, block=args.block)
+        ab, toggle = listening(comp, block=args.block, context=preserve_context)
         written += [write_wav(stem.with_name(stem.name + ".ab.wav"), ab, ANALYSIS_RATE),
                     write_wav(stem.with_name(stem.name + ".toggle.wav"), toggle, ANALYSIS_RATE)]
     for path in written:
@@ -450,9 +457,11 @@ def main(argv: list[str] | None = None) -> int:
     comp.add_argument("--max-lag", type=float, default=1.0, help="largest shift (s) tried when aligning")
     comp.add_argument("--block", type=float, default=2.0, help="seconds between switches in the toggle file")
     comp.add_argument("--no-ab", action="store_true", help="skip the listening files")
+    comp.add_argument("--preserve-context", action="store_true", help="retain aligned edge attacks/tails in A/B files")
     comp.add_argument("--clap", action="store_true", help="also the cosine of CLAP embeddings (needs notes[ears])")
     comp.add_argument("--mert", action="store_true", help="also MERT-95M music similarity (needs notes[ears])")
     comp.add_argument("--mert-path", help="existing pinned MERT checkpoint directory, for offline use")
+    comp.add_argument("--mert-trim", action="store_true", help="trim quiet edges for single-event MERT analysis")
     comp.add_argument("-o", "--out", help="output directory (default: the render's)")
     comp.set_defaults(func=_compare)
     for p in (render, listen, comp):
