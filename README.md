@@ -308,6 +308,18 @@ The same known-note audit is exposed by the CLI:
 `notes audit-note reference.wav render.wav --pitch A3 -o report.json`.
 It does not infer a part from a mixture and does not label the instrument realistic.
 
+For a reference with GuitarSet JAMS annotations, `notes.ears.guitarset.guitarset_music`
+imports the performance as Music to be played at BPM 60. It preserves original
+onsets/durations, maps string indices to `string=1..6`, and encodes fractional tuning
+and voiced contours as `pitch_points` around the nominal fret pitch. An optional
+`string=1..6` selects one string without shortening the timeline. Confidence is
+never used as velocity; velocity is an explicit argument. Known erroneous files
+are rejected, and voiced zero-frequency holes are reported and interpolated within
+each note. Import the whole performance before cropping rendered audio, so held
+notes are not retriggered at a crop boundary. Only musical control data enter the
+renderer; recorded audio remains an evaluation input. Annotation fidelity does not
+establish the realism of the resulting timbre.
+
 Note-audit metric version 2 uses the union of audible reference and candidate
 partials, so synthesized extra harmonics are penalized. A separate full-band
 spectral error also catches energy outside the analysed harmonic range. Version 1
