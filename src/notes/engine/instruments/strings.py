@@ -58,16 +58,22 @@ def _pick_click(n: int, sr: int, rng: np.random.Generator) -> np.ndarray:
     return click
 
 
-def fret_scale(pitch: float) -> float:
+def fret_scale(pitch: float, string: int | None = None) -> float:
     """How much shorter than the open string the vibrating length is for this note.
 
-    The note goes on the highest string that can play it (lowest fret), as melodies are
-    usually played. The pick and the pickups sit at fixed distances from the bridge, so
+    With an explicit string (1=high e, 6=low E), use that string's fret. Otherwise
+    use the highest string that can play the note (lowest fret). The pick and the pickups
+    sit at fixed distances from the bridge, so
     as a fretted string gets shorter they sit relatively further along it: at the 12th
     fret the neck pickup is near the middle of the string, which is why high notes on the
     neck pickup sound round and hollow.
     """
-    open_string = max((s for s in _STANDARD_TUNING if s <= pitch), default=_STANDARD_TUNING[0])
+    if string is None:
+        open_string = max((s for s in _STANDARD_TUNING if s <= pitch), default=_STANDARD_TUNING[0])
+    else:
+        if not isinstance(string, int) or not 1 <= string <= 6:
+            raise ValueError("string must be an integer from 1 to 6")
+        open_string = _STANDARD_TUNING[6-string]
     fret = float(np.clip(pitch - open_string, 0.0, _MAX_FRET))
     return 2.0 ** (-fret / 12.0)
 
@@ -152,6 +158,9 @@ class ElectricGuitar(Instrument):
 
     ``amplified=False`` bypasses the amp and cabinet for a direct pickup signal.
 
+    Per-note ``pick_position`` and ``pick_hardness`` override the constructor
+    controls before fret geometry and mute/legato/velocity modifiers.
+
     Per-note parameters: ``palm_mute=True`` for chugs that ring `mute_decay` seconds (T60)
     with the pluck softened to `mute_brightness`; ``legato=True`` for a note sounded by the
     fretting hand (hammer-on, pull-off, the end of a slide): no pick click, a softer and
@@ -207,15 +216,21 @@ class ElectricGuitar(Instrument):
         legato = bool(v.params.get("legato", False))
         t60 = self.mute_decay if muted else _t60(self.sustain, v.freq)
         t60_high = min(self.treble_decay, 0.3 * t60) if muted else self.treble_decay
-        hardness = self.brightness * (self.mute_brightness if muted else 1.0) * (_LEGATO_SOFTNESS if legato else 1.0)
+        pick_position = float(v.params.get("pick_position", self.pick_position))
+        pick_hardness = float(v.params.get("pick_hardness", self.brightness))
+        if "pick_position" in v.params and (not np.isfinite(pick_position) or not 0 < pick_position < 1):
+            raise ValueError("per-note pick_position must be finite and between 0 and 1")
+        if "pick_hardness" in v.params and (not np.isfinite(pick_hardness) or not 0 <= pick_hardness <= 1):
+            raise ValueError("per-note pick_hardness must be finite and between 0 and 1")
+        hardness = pick_hardness * (self.mute_brightness if muted else 1.0) * (_LEGATO_SOFTNESS if legato else 1.0)
         hardness *= 1.0 - self.velocity_brightness * (1.0 - v.vel)
         string = v.params.get("string")
         if (string in _WOUND_STRINGS) if string is not None else v.pitch < _LOWEST_PLAIN:
             t60_high *= self.wound_treble
             hardness *= self.wound_brightness
-        scale = fret_scale(v.pitch) if self.fretting else 1.0
+        scale = fret_scale(v.pitch, string) if self.fretting else 1.0
         position = _along(_PICKUP_POSITION[self.pickup], scale)
-        pick = _along(self.pick_position, scale)
+        pick = _along(pick_position, scale)
         lag = int(round(position * sr / v.freq))
 
         def string(m: int) -> np.ndarray:

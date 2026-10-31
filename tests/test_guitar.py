@@ -123,3 +123,59 @@ def test_wound_strings_can_be_darker():
     assert np.allclose(note(dark, 64.0), note(plain, 64.0))  # E4 with no string: taken as plain
     assert treble(note(dark, 59.0, string=4)) < 0.7 * treble(note(plain, 59.0, string=4))  # B3 on the D string
     assert np.allclose(note(dark, 59.0, string=2), note(plain, 59.0, string=2))  # open B: plain
+
+
+def test_explicit_plain_string_changes_fretted_pickup_geometry():
+    from notes import ElectricGuitar
+    from notes.engine import Voice
+    guitar = ElectricGuitar(fretting=True, pitch_attack=0)
+    context = RenderContext(sr=SR, bpm=60)
+    def note(string):
+        return guitar.voice(Voice(329.6276,64,.7,.8,{"string":string}),context,np.random.default_rng(17))
+    # E4 on open high e versus B-string fifth fret: same pitch, different geometry.
+    assert not np.array_equal(note(1),note(2))
+    for y in (note(1),note(2)):
+        assert _peak_hz(y[SR//5:SR//2],329.6276,8) == pytest.approx(329.6276,abs=2)
+
+
+def test_fret_scale_honors_explicit_string_and_keeps_automatic_default():
+    from notes.engine.instruments.strings import fret_scale
+    assert fret_scale(64) == fret_scale(64, 1) == 1
+    assert fret_scale(64, 2) == pytest.approx(2**(-5/12))
+    with pytest.raises(ValueError):
+        fret_scale(64, 7)
+
+
+def test_per_note_pick_controls_preserve_pitch_and_soften_excitation():
+    from notes import ElectricGuitar
+    from notes.engine import Voice
+    instrument = ElectricGuitar(pitch_attack=0, pick_noise=0)
+    context = RenderContext(sr=SR, bpm=60)
+    def note(**params):
+        return instrument.voice(Voice(329.6276,64,.7,.8,params),context,np.random.default_rng(17))
+    assert np.array_equal(note(),note(pick_position=instrument.pick_position,pick_hardness=instrument.brightness))
+    soft,hard=note(pick_hardness=.1),note(pick_hardness=1)
+    def treble(y):
+        y=y[:SR//5]
+        power=abs(np.fft.rfft(y*np.hanning(len(y))))**2
+        hz=np.fft.rfftfreq(len(y),1/SR)
+        return power[hz>3000].sum()/power.sum()
+    assert treble(soft)<treble(hard)
+    assert not np.array_equal(note(pick_position=.1),note(pick_position=.35))
+    for params in ({"pick_position":0},{"pick_hardness":float("nan")}):
+        with pytest.raises(ValueError):
+            note(**params)
+
+
+def test_instrument_level_is_preamp_gain_not_postamp_volume():
+    from notes import ElectricGuitar
+    from notes.engine import Voice
+    ctx=RenderContext(sr=SR,bpm=60)
+    def output(level,amplified):
+        instrument=ElectricGuitar(level=level,drive=.7,amplified=amplified)
+        y=instrument.voice(Voice(220,57,.5,.8,{}),ctx,np.random.default_rng(17))[None,:]
+        for effect in instrument.inserts():
+            y=effect.process(y,ctx)
+        return y/np.linalg.norm(y)
+    assert np.allclose(output(.1,False),output(1.,False),atol=1e-12)
+    assert np.linalg.norm(output(.1,True)-output(1.,True))>.01
