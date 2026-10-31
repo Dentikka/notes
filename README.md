@@ -312,6 +312,8 @@ For a reference with GuitarSet JAMS annotations, `notes.ears.guitarset.guitarset
 imports the performance as Music to be played at BPM 60. It preserves original
 onsets/durations, maps string indices to `string=1..6`, and encodes fractional tuning
 and voiced contours as `pitch_points` around the nominal fret pitch. An optional
+contour note index prevents adjacent notes from leaking into each other's pitch.
+An optional
 `string=1..6` selects one string without shortening the timeline. Confidence is
 never used as velocity; velocity is an explicit argument. Known erroneous files
 are rejected, and voiced zero-frequency holes are reported and interpolated within
