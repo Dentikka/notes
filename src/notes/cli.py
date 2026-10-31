@@ -196,10 +196,21 @@ def _compare(args: argparse.Namespace) -> int:
         ear = Ear(args.model)
         report["clap"] = {"cosine": round(cosine(ear.embed_audio(comp.reference, ANALYSIS_RATE),
                                                  ear.embed_audio(comp.render, ANALYSIS_RATE)), 4)}
+    if args.mert:
+        from notes.ears import MertEar, cosine
+
+        ear = MertEar(local_path=args.mert_path)
+        report["mert"] = {
+            "cosine": round(cosine(ear.embed_audio(comp.reference, ANALYSIS_RATE),
+                                   ear.embed_audio(comp.render, ANALYSIS_RATE)), 6),
+            "model": ear.model_name, "revision": ear.revision, "status": "diagnostic-only",
+        }
     out = Path(args.out).resolve() if args.out else render.parent
     out.mkdir(parents=True, exist_ok=True)
     stem = out / f"{render.stem}.vs.{reference.stem}"
     print(format_comparison(report))
+    if "mert" in report:
+        print(f"MERT reference similarity: {report['mert']['cosine']:.6f} (diagnostic only)")
     written = [_write_json(stem.with_name(stem.name + ".json"), report),
                comparison(comp, stem.with_name(stem.name + ".png"), f"{render.name} vs {reference.name}")]
     if not args.no_ab:
@@ -436,6 +447,8 @@ def main(argv: list[str] | None = None) -> int:
     comp.add_argument("--block", type=float, default=2.0, help="seconds between switches in the toggle file")
     comp.add_argument("--no-ab", action="store_true", help="skip the listening files")
     comp.add_argument("--clap", action="store_true", help="also the cosine of CLAP embeddings (needs notes[ears])")
+    comp.add_argument("--mert", action="store_true", help="also MERT-95M music similarity (needs notes[ears])")
+    comp.add_argument("--mert-path", help="existing pinned MERT checkpoint directory, for offline use")
     comp.add_argument("-o", "--out", help="output directory (default: the render's)")
     comp.set_defaults(func=_compare)
     for p in (render, listen, comp):
