@@ -39,6 +39,25 @@ def test_budget_and_trial_callback():
     json.dumps(trials, allow_nan=False)
 
 
+def test_optional_objective_receives_aligned_audio_and_can_retain_initial_on_ties():
+    observed = []
+
+    def objective(comparison):
+        observed.append(comparison)
+        assert comparison.reference.shape == comparison.render.shape
+        assert np.isfinite(comparison.render).all()
+        return 0.
+
+    result = fit_reference(_bass({"tone": .9}), _bass, {"tone": .1},
+                           {"tone": [.9]}, max_lag=0, objective=objective)
+    # The standard objective would recover .9; this independent objective ties.
+    assert result.settings == {"tone": .1} and result.loss == 0
+    assert len(observed) == 2
+    with pytest.raises(ValueError, match="nonfinite"):
+        fit_reference(_bass({"tone": .9}), _bass, {"tone": .1}, {"tone": [.9]},
+                      objective=lambda comparison: float("nan"))
+
+
 @pytest.mark.parametrize("options", [{"passes": 0}, {"max_evaluations": 0}, {"max_lag": -1}])
 def test_rejects_invalid_search_controls(options):
     with pytest.raises(ValueError):

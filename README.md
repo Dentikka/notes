@@ -318,6 +318,28 @@ The same known-note audit is exposed by the CLI:
 `notes audit-note reference.wav render.wav --pitch A3 -o report.json`.
 It does not infer a part from a mixture and does not label the instrument realistic.
 
+`notes compare reference.wav render.wav --mert` optionally adds audio-only
+MERT-95M similarity alongside the existing measurements. `--mert-path PATH` uses
+an existing pinned checkpoint offline; without it, the three checkpoint data files
+are downloaded. `notes.ears.MertEar` exposes the same embeddings in Python.
+It uses the last layer with temporal mean pooling and overlapping windows of at
+most 10 seconds, and executes no model-repository Python. The regular comparison
+path does not load MERT or require its weights.
+
+The fixed representation preferred the listening-approved piano over the rejected
+hammer version in six register/dynamic comparisons and detected seven +2-semitone
+controls. This is a small calibration, not a realism certificate or validation of
+other instrument families. The JSON explicitly marks the score diagnostic-only.
+Model: [MERT: Acoustic Music Understanding Model with Large-Scale Self-supervised Training](https://arxiv.org/pdf/2306.00107).
+
+`fit_reference(..., objective=callback)` optionally scores the complete `Comparison`
+with aligned reference/render audio and the ordinary diagnostic report. The existing
+objective remains the default. A CLI fit script may likewise define `objective(comp)`
+and `objective_name`; the name is saved with its result. This permits a cached MERT
+reference embedding to guide a search while retaining the independent timing,
+spectrum and envelope measurements. A better embedding score alone is not an
+acceptance criterion for the generated instrument.
+
 For a reference with GuitarSet JAMS annotations, `notes.ears.guitarset.guitarset_music`
 imports the performance as Music to be played at BPM 60. It preserves original
 onsets/durations, maps string indices to `string=1..6`, and encodes fractional tuning

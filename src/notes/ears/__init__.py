@@ -4,6 +4,7 @@ measures up against a reference recording (`compare`, numpy and scipy only)."""
 from notes.ears.clap import CLAP_SAMPLE_RATE, DEFAULT_MODEL, Ear, Tag, cosine, format_report, to_clap_rate, windows
 from notes.ears.compare import ANALYSIS_RATE, Comparison, compare, format_comparison, listening, load
 from notes.ears.fit import FitResult, fit_loss, fit_reference
+from notes.ears.mert import MertEar
 from notes.ears.polyphonic import TemplateTrack, notes_from_templates, template_track
 from notes.ears.transcribe import tracked_music
 from notes.ears.vocab import TEMPLATES, VOCABULARY
@@ -17,6 +18,7 @@ __all__ = [
     "Comparison",
     "Ear",
     "FitResult",
+    "MertEar",
     "Tag",
     "TemplateTrack",
     "compare",
