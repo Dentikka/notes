@@ -66,7 +66,7 @@ def guitarset_music(
     if not np.isfinite(duration) or duration <= 0:
         raise ValueError("GuitarSet duration must be finite and positive")
     notes: dict[int, list[dict[str, Any]]] = {}
-    tracks: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+    tracks: dict[int, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
     for annotation in data.get("annotations", []):
         namespace = annotation.get("namespace")
         if namespace not in ("note_midi", "pitch_contour"):
@@ -83,7 +83,7 @@ def guitarset_music(
         elif contours:
             if string in tracks:
                 raise ValueError("duplicate pitch contour for a guitar string")
-            times, pitches = [], []
+            times, pitches, indices = [], [], []
             missing = 0
             for row in observations:
                 point = row["value"]
@@ -95,11 +95,18 @@ def guitarset_music(
                 if freq == 0:
                     missing += 1
                     continue  # Some official files mark missing frequencies as voiced zero.
+                index = point.get("index", -1)
+                if not isinstance(index, int) or index < -1:
+                    raise ValueError("pitch observation index must be a nonnegative note index")
                 times.append(time)
                 pitches.append(69 + 12*np.log2(freq/440))
-            if len(times) > 1 and np.any(np.diff(times) <= 0):
-                raise ValueError("pitch observations must have increasing times")
-            tracks[string] = np.asarray(times), np.asarray(pitches)
+                indices.append(index)
+            t, p, ids = np.asarray(times), np.asarray(pitches), np.asarray(indices, dtype=int)
+            if np.any(ids >= 0) and np.any(ids < 0):
+                raise ValueError("pitch observations must consistently identify their notes")
+            if any(np.any(np.diff(t[ids == index]) <= 0) for index in set(indices)):
+                raise ValueError("pitch observations must have increasing times within each note")
+            tracks[string] = t, p, ids
             if missing:
                 logger.warning("%s: string %d has %d missing voiced frequencies", title, 6-string, missing)
     placed = []
@@ -107,7 +114,7 @@ def guitarset_music(
         if selected_string is not None and selected_string != 6-string:
             continue
         seen = set()
-        for row in observations:
+        for note_index, row in enumerate(observations):
             start, length, pitch = float(row["time"]), float(row["duration"]), float(row["value"])
             if (not np.isfinite([start, length, pitch]).all() or start < 0 or length <= 0
                     or start+length > duration+.001):
@@ -121,8 +128,10 @@ def guitarset_music(
             params: dict[str, Any] = {"string": 6-string}
             points = [(0., pitch-nominal)]
             if contours and string in tracks:
-                times, pitches = tracks[string]
+                times, pitches, indices = tracks[string]
                 within = (times >= start) & (times < start+length)
+                if np.any(indices >= 0):
+                    within &= indices == note_index
                 if within.any():
                     t, p = times[within]-start, pitches[within]-nominal
                     points = [(0., float(p[0]))]

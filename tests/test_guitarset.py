@@ -53,6 +53,20 @@ def test_string_filter_retains_silence_and_full_timeline():
         guitarset_music(annotation(), string=0)
 
 
+def test_contour_indices_prevent_a_neighbouring_note_from_leaking_into_the_pitch():
+    data = annotation()
+    data["annotations"][0]["data"] = [
+        {"time": .1, "duration": .5, "value": 45}, {"time": .4, "duration": .4, "value": 47}]
+    data["annotations"][1]["data"] = [
+        {"time": .13, "value": {"voiced": True, "index": 0, "frequency": 110}},
+        {"time": .42, "value": {"voiced": True, "index": 1, "frequency": 123.470825}},
+        {"time": .49, "value": {"voiced": True, "index": 0, "frequency": 110}},
+        {"time": .7, "value": {"voiced": True, "index": 1, "frequency": 123.470825}}]
+    events = Song(guitarset_music(data)).compile().events
+    for event in events:
+        assert max(abs(value) for _, value in event.param("pitch_points")) < .0001
+
+
 @pytest.mark.parametrize("title", ["04_BN3-154-E_comp", "04_Jazz1-200-B_comp", "02_Funk2-119-G_comp"])
 def test_known_annotation_errors_are_rejected(title):
     data = annotation()
