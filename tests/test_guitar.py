@@ -165,3 +165,17 @@ def test_per_note_pick_controls_preserve_pitch_and_soften_excitation():
     for params in ({"pick_position":0},{"pick_hardness":float("nan")}):
         with pytest.raises(ValueError):
             note(**params)
+
+
+def test_instrument_level_is_preamp_gain_not_postamp_volume():
+    from notes import ElectricGuitar
+    from notes.engine import Voice
+    ctx=RenderContext(sr=SR,bpm=60)
+    def output(level,amplified):
+        instrument=ElectricGuitar(level=level,drive=.7,amplified=amplified)
+        y=instrument.voice(Voice(220,57,.5,.8,{}),ctx,np.random.default_rng(17))[None,:]
+        for effect in instrument.inserts():
+            y=effect.process(y,ctx)
+        return y/np.linalg.norm(y)
+    assert np.allclose(output(.1,False),output(1.,False),atol=1e-12)
+    assert np.linalg.norm(output(.1,True)-output(1.,True))>.01

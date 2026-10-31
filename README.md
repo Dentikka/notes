@@ -318,3 +318,7 @@ Electric-guitar notes also accept `pick_position` and `pick_hardness` through
 `Music.param(...)`. These physical controls override the instrument defaults
 before fretting, mute/legato and velocity-brightness modifiers. They store scalar
 performance parameters; no reference waveform is used by the synthesizer.
+
+For amplified guitars, instrument `level` is an excitation gain before the amp;
+changing it changes saturation even after loudness matching. Use `Track.gain` or
+master loudness for output-volume changes that preserve the amp operating point.
