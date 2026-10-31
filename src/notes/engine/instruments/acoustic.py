@@ -106,7 +106,7 @@ class AcousticGuitar(Instrument):
                 Body(size=self.body_size, diffuse=self.diffuse, mix=self.body, phase=self.body_phase))
 
     def _string(self, freq: float, n: int, sr: int, hardness: float, curve, rng: np.random.Generator,
-                pick: float | None = None, length_scale: float = 1.0) -> np.ndarray:
+                pick: float | None = None, length_scale: float = 1.0, interpolation: str = "linear") -> np.ndarray:
         def render(m: int) -> np.ndarray:
             if self.model == "coupled":
                 from notes.engine.coupled_string import coupled_string
@@ -133,7 +133,7 @@ class AcousticGuitar(Instrument):
                                 prompt_t60=(self.prompt_decay * _t60(self.sustain, freq)
                                             if self.prompt_decay > 0 else None))
 
-        return render(n) if curve is None else variable_rate_read(render, curve)
+        return render(n) if curve is None else variable_rate_read(render, curve, interpolation=interpolation)
 
     def voice(self, v: Voice, ctx: RenderContext, rng: np.random.Generator) -> np.ndarray:
         sr = ctx.sr
@@ -161,12 +161,13 @@ class AcousticGuitar(Instrument):
             else:
                 scale = fret_scale(v.pitch)
             pick = _along(position, scale)
-        y = self._string(v.freq, n, sr, hardness, curve, rng, pick, scale)
+        interpolation = v.params.get("pitch_interpolation", "linear")
+        y = self._string(v.freq, n, sr, hardness, curve, rng, pick, scale, interpolation)
         if self.twelve:
             string = v.params.get("string")
             octave = string in _OCTAVE_COURSES if string is not None else v.pitch < _LOWEST_UNISON
             partner = self._string(v.freq * (2.0 if octave else 1.0) * 2.0 ** (self.course_detune / 1200.0), n, sr,
-                                   hardness, curve, rng, pick, scale)
+                                   hardness, curve, rng, pick, scale, interpolation)
             lag = int(round(self.course_lag * sr))
             # the octave string is the thin one, met first on a down stroke; a unison pair is alike
             y = delay(y, lag) + self.octave_level * partner if octave else y + self.octave_level * delay(partner, lag)
