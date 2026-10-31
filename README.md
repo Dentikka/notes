@@ -332,6 +332,14 @@ controls. This is a small calibration, not a realism certificate or validation o
 other instrument families. The JSON explicitly marks the score diagnostic-only.
 Model: [MERT: Acoustic Music Understanding Model with Large-Scale Self-supervised Training](https://arxiv.org/pdf/2306.00107).
 
+`fit_reference(..., objective=callback)` optionally scores the complete `Comparison`
+with aligned reference/render audio and the ordinary diagnostic report. The existing
+objective remains the default. A CLI fit script may likewise define `objective(comp)`
+and `objective_name`; the name is saved with its result. This permits a cached MERT
+reference embedding to guide a search while retaining the independent timing,
+spectrum and envelope measurements. A better embedding score alone is not an
+acceptance criterion for the generated instrument.
+
 For a reference with GuitarSet JAMS annotations, `notes.ears.guitarset.guitarset_music`
 imports the performance as Music to be played at BPM 60. It preserves original
 onsets/durations, maps string indices to `string=1..6`, and encodes fractional tuning

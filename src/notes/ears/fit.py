@@ -54,6 +54,7 @@ def fit_reference(
     max_lag: float = 0.05,
     max_evaluations: int = 100,
     on_trial: Callable[[dict[str, Any]], None] | None = None,
+    objective: Callable[[Comparison], float] | None = None,
 ) -> FitResult:
     """Greedy coordinate search with caching, a strict render budget and early stopping.
 
@@ -62,6 +63,8 @@ def fit_reference(
     candidate is always evaluated and retained on ties. The history contains every
     unique evaluation, including its full comparison report. ``on_trial`` can persist
     each trial as JSONL, so an interrupted search still leaves useful evidence.
+    An optional ``objective`` consumes the aligned audio and diagnostic report;
+    otherwise the existing fit_loss is used. It must return a finite scalar.
     """
     if passes < 1 or max_evaluations < 1 or not np.isfinite(max_lag) or max_lag < 0:
         raise ValueError("passes/budget must be positive and max_lag finite and nonnegative")
@@ -78,7 +81,7 @@ def fit_reference(
         if key in cache:
             return cache[key][0]
         comp = compare(reference, render(dict(settings)), sr=sr, max_lag=max_lag)
-        loss = fit_loss(comp.report)
+        loss = float(fit_loss(comp.report) if objective is None else objective(comp))
         if not np.isfinite(loss):
             raise ValueError("nonfinite fitting objective")
         trial = {"evaluation": len(history) + 1, "settings": dict(settings), "loss": loss,
