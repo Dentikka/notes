@@ -265,8 +265,11 @@ full soundboard simulation or an established realism improvement.
 The listening-approved piano palette uses `Piano(model="hammer_damped")`.
 `attack_presence=0.6` optionally lifts upper-register partials only during the onset
 (time constant 60 ms); C4 and below and the late tail retain the original source.
-The default is zero, preserving the accepted timbre. The onset option still needs
-listening assessment; it is not a pedal control.
+The default is zero, preserving the accepted timbre. Listening found no noticeable
+difference with 0.6: the raw E5 RMS change was only +0.27 dB in the first 60 ms.
+This option is not an established improvement or a pedal control. A stronger local
+attack experiment increased reference-spectrum errors on A4 and E5, so it was not
+added to the instrument. The approved preset remains unchanged.
 
 Known-note reference diagnostics are available in `notes.ears.note_profile`:
 `profile_note(mono, sr, expected_f0)` measures tuning, harmonic envelopes and attack;
