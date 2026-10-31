@@ -53,6 +53,8 @@ class AcousticGuitar(Instrument):
     body affects modal decay as well as radiation. ``coupling`` scales mobility,
     ``radiation`` moves from bridge velocity (0) toward acceleration (1).
     ``body`` and ``excitation`` apply to the original waveguide model only.
+    ``body_phase="minimum"`` optionally concentrates its body's impulse response
+    earlier without redesigning the magnitude spectrum; the default is "designed".
     Per-note ``pick_position`` and ``pick_hardness`` override the pluck in either model.
     """
 
@@ -72,6 +74,7 @@ class AcousticGuitar(Instrument):
     velocity_brightness: float = 0.0
     body: float = 1.0
     body_size: float = 1.0
+    body_phase: str = "designed"
     diffuse: float = 0.8
     twelve: bool = False
     course_detune: float = 4.0
@@ -82,6 +85,8 @@ class AcousticGuitar(Instrument):
     level: float = 0.25
 
     def __post_init__(self) -> None:
+        if self.body_phase not in ("designed", "minimum"):
+            raise ValueError("body_phase must be designed or minimum")
         if self.model not in ("waveguide", "coupled"):
             raise ValueError("model must be waveguide or coupled")
         if not np.isfinite(self.coupling) or self.coupling <= 0:
@@ -97,7 +102,8 @@ class AcousticGuitar(Instrument):
     def inserts(self) -> tuple[Effect, ...]:
         if self.model == "coupled":
             return ()  # Radiation and body dynamics already form part of each coupled voice.
-        return (Filter(kind="highpass", cutoff=60.0), Body(size=self.body_size, diffuse=self.diffuse, mix=self.body))
+        return (Filter(kind="highpass", cutoff=60.0),
+                Body(size=self.body_size, diffuse=self.diffuse, mix=self.body, phase=self.body_phase))
 
     def _string(self, freq: float, n: int, sr: int, hardness: float, curve, rng: np.random.Generator,
                 pick: float | None = None, length_scale: float = 1.0) -> np.ndarray:
