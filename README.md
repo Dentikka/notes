@@ -295,6 +295,16 @@ acceleration. `body_size`, `diffuse`, the decay and pick controls remain availab
 `body` and `excitation` select behavior only in the original `model="waveguide"`.
 Both models accept per-note `pick_position` and `pick_hardness` overrides.
 
+The waveguide acoustic/nylon body can optionally use `body_phase="minimum"`
+(`Body(phase="minimum")` as an effect). This moves energy toward the start of the
+mathematically designed body response, approximately retaining its magnitude
+spectrum and the original tail allocation. The default `"designed"` preserves
+the previous signal exactly. On two GuitarSet performances, this is a controlled
+phase experiment, not an established timbre improvement: auxiliary CLAP similarity
+increased on two regions and decreased on the fitting region. It does not correct
+an annotation-to-waveform onset offset. See
+[Minimum-Phase Filters](https://www.dsprelated.com/freebooks/filters/Minimum_Phase_Filters.html).
+
 The coupled example `examples/reference_coupled_acoustic.py` reduced the mean
 diagnostic error on nine unseen Seagull recordings by about 19%, with no per-case
 regression at either of two seeds. Low E2 still regresses on the development set.

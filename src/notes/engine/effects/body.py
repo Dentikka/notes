@@ -33,10 +33,21 @@ _DIFFUSE_T60 = 0.07  # s
 _SEED = 1969
 
 
+def _minimum_phase_ir(ir: np.ndarray) -> np.ndarray:
+    from notes.engine.effects.speaker import _minimum_phase
+
+    n_fft = 1 << (max(32768, 8*len(ir))-1).bit_length()
+    return _minimum_phase(np.abs(np.fft.rfft(ir, n_fft)))[:len(ir)]
+
+
 @lru_cache(maxsize=16)
-def body_ir(sr: int, size: float = 1.0, diffuse: float = 0.8) -> np.ndarray:
+def body_ir(sr: int, size: float = 1.0, diffuse: float = 0.8, phase: str = "designed") -> np.ndarray:
     """Body impulse response at `sr`: the modal ladder plus a diffuse noise decay at `diffuse`
-    (relative level), unity gain at 1 kHz."""
+    (relative level), unity gain at 1 kHz. Optional minimum phase concentrates
+    energy earlier while approximately preserving the magnitude spectrum.
+    """
+    if phase not in ("designed", "minimum"):
+        raise ValueError("body phase must be designed or minimum")
     n = int(_LENGTH * sr)
     t = np.arange(n) / sr
     ir = np.zeros(n)
@@ -52,7 +63,12 @@ def body_ir(sr: int, size: float = 1.0, diffuse: float = 0.8) -> np.ndarray:
     spec = np.abs(np.fft.rfft(ir, 1 << 15))
     f = np.fft.rfftfreq(1 << 15, 1.0 / sr)
     around_1k = float(np.sqrt(np.mean(spec[(f > 890.0) & (f < 1120.0)] ** 2)))  # a third octave, not one bin
-    return ir / max(around_1k, 1e-12)
+    ir = ir / max(around_1k, 1e-12)
+    if phase == "minimum":
+        # Oversampling the log spectrum limits cepstral wrap-around. Retain the
+        # original tail length, so the renderer's allocation contract is unchanged.
+        ir = _minimum_phase_ir(ir)
+    return ir
 
 
 @register_effect("body")
@@ -60,16 +76,35 @@ def body_ir(sr: int, size: float = 1.0, diffuse: float = 0.8) -> np.ndarray:
 class Body(Effect):
     """An acoustic guitar body (`body_ir`) and a mic in front of it: `size` of the box (1 a
     dreadnought), `diffuse` the share of the dense upper modes, `mix` how much of the sound is
-    the body (0: the bare string, as a piezo pickup hears it)."""
+    the body (0: the bare string, as a piezo pickup hears it). ``phase="minimum"``
+    concentrates the complete dry/wet response earlier while retaining its magnitude;
+    ``phase="designed"`` preserves the original response.
+    """
 
     size: float = 1.0
     diffuse: float = 0.8
     mix: float = 1.0
+    phase: str = "designed"
+
+    def __post_init__(self) -> None:
+        if self.phase not in ("designed", "minimum"):
+            raise ValueError("body phase must be designed or minimum")
 
     def tail(self, ctx: RenderContext) -> float:
         return _LENGTH
 
     def process(self, x: np.ndarray, ctx: RenderContext) -> np.ndarray:
-        ir = body_ir(ctx.sr, round(float(self.size), 4), round(float(self.diffuse), 4))
+        size, diffuse = round(float(self.size), 4), round(float(self.diffuse), 4)
+        if self.phase == "minimum":
+            if self.mix == 1.0:
+                ir = body_ir(ctx.sr, size, diffuse, "minimum")
+            else:
+                # Factor the entire dry/wet transfer. Blending a minimum-phase
+                # wet response with dry audio would change the magnitude again.
+                ir = body_ir(ctx.sr, size, diffuse) * self.mix
+                ir[0] += 1.0-self.mix
+                ir = _minimum_phase_ir(ir)
+            return oaconvolve(x, ir.reshape((1,) * (x.ndim - 1) + (-1,)), axes=-1)[..., :x.shape[-1]]
+        ir = body_ir(ctx.sr, size, diffuse)
         wet = oaconvolve(x, ir.reshape((1,) * (x.ndim - 1) + (-1,)), axes=-1)[..., : x.shape[-1]]
         return (1.0 - self.mix) * x + self.mix * wet
