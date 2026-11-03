@@ -7,6 +7,7 @@ from notes.ears.fit import FitResult, fit_loss, fit_reference
 from notes.ears.mert import MertEar
 from notes.ears.polyphonic import TemplateTrack, notes_from_templates, template_track
 from notes.ears.transcribe import tracked_music
+from notes.ears.tuning import KnownNoteTuning, known_note_tuning
 from notes.ears.vocab import TEMPLATES, VOCABULARY
 
 __all__ = [
@@ -18,6 +19,7 @@ __all__ = [
     "Comparison",
     "Ear",
     "FitResult",
+    "KnownNoteTuning",
     "MertEar",
     "Tag",
     "TemplateTrack",
@@ -28,6 +30,7 @@ __all__ = [
     "format_comparison",
     "format_report",
     "listening",
+    "known_note_tuning",
     "load",
     "notes_from_templates",
     "template_track",
