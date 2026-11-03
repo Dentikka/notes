@@ -421,3 +421,26 @@ performance parameters; no reference waveform is used by the synthesizer.
 For amplified guitars, instrument `level` is an excitation gain before the amp;
 changing it changes saturation even after loudness matching. Use `Track.gain` or
 master loudness for output-volume changes that preserve the amp operating point.
+
+`ElectricGuitar(pickup_position=.06, pickup_width=.04)` opts into a spatial
+magnetic pickup with fractional delays and a finite uniform sensing aperture.
+`coil_spacing` adds two equal in-phase coils. These dimensions are fractions of
+the open string when `fretting=True`, otherwise of its vibrating length; the
+whole aperture must fit inside the vibrating string. Fundamental gain is
+normalized, so these controls primarily change harmonic balance. They are distinct
+from `pick_position`, which describes where the plectrum strikes.
+
+`pickup_cutoff` and `pickup_q` independently override the electrical lowpass.
+Their default None values retain the existing pickup filter; zero widths/spacings
+and no explicit position retain the original integer-delay point pickup exactly.
+All filters are generated mathematically, without measured IRs or sample playback.
+The model assumes a uniform magnetic aperture and nearly harmonic propagation.
+Spatial derivations: [pickup position and width](https://till.com/articles/PickupResponse/),
+[equal pickup mixing](https://till.com/articles/PickupMixing/).
+
+`examples/reference_direct_guitar.py` exposes a frozen DI candidate and an optional
+baseline. The frozen candidate improved note-profile diagnostics on twelve other
+note/dynamic cases with two synthesis seeds at both 22.05 and 44.1 kHz, covering
+all six strings. MERT regressed on D3,
+so this is an experimental reference fit, not a universal clean-guitar preset or
+an established realism result. The default guitar remains unchanged.
