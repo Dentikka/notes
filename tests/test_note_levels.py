@@ -45,3 +45,48 @@ def test_note_at_start_uses_silence_before_audio_and_has_finite_level():
 def test_silence_does_not_turn_model_candidates_into_loud_notes():
     notes = measure_note_levels(np.zeros(16000), 16000, [_note(.2, .7, 57)])
     assert perform(tracked_music(notes, peak_normalize=True)).events[0].vel == 0
+
+
+def test_isolated_quieter_repeat_keeps_its_sounding_level():
+    sr = 16000
+    t = np.arange(round(.3 * sr)) / sr
+    x = np.r_[np.sin(2 * np.pi * 200 * t), .7 * np.sin(2 * np.pi * 200 * t)]
+    original = x.copy()
+    notes = [_note(0, .3, 55), _note(.3, .6, 55)]
+    measured = measure_note_levels(x, sr, notes, method="rms")
+    assert measured[1].level_db - measured[0].level_db == pytest.approx(20 * np.log10(.7), abs=.01)
+    assert measured[1].level_db > -10
+    assert [(n.start, n.end, n.pitch) for n in measured] == [(n.start, n.end, n.pitch) for n in notes]
+    assert notes[0].level_db == notes[1].level_db == -1
+    np.testing.assert_array_equal(x, original)
+    legacy = measure_note_levels(x, sr, notes)
+    explicit = measure_note_levels(x, sr, notes, method="growth")
+    assert [n.level_db for n in legacy] == [n.level_db for n in explicit]
+    assert legacy[1].level_db == -200  # Growth cannot represent a quieter sustained repeat.
+
+
+@pytest.mark.parametrize("duration", [.005, .02, .08])
+def test_isolated_short_note_does_not_measure_the_loud_note_that_follows(duration):
+    sr = 16000
+    t = np.arange(sr) / sr
+    x = np.sin(2 * np.pi * 200 * t) * np.where(t < duration, .1, 1.)
+    measured = measure_note_levels(x, sr, [_note(0, duration, 55)], method="rms")
+    assert measured[0].level_db == pytest.approx(10 * np.log10(.1**2 / 2), abs=.02)
+
+
+@pytest.mark.parametrize("dc", [0., 2.])
+def test_isolated_silence_or_dc_is_silent_and_out_of_range_note_is_silent(dc):
+    notes = [_note(.2, .5, 55), _note(2, 3, 55)]
+    measured = measure_note_levels(np.full(16000, dc), 16000, notes, method="rms")
+    assert [n.level_db for n in measured] == [-200, -200]
+
+
+@pytest.mark.parametrize("start,end", [(-1, .1), (.1, .1), (.2, .1), (np.nan, .1), (0, np.inf)])
+def test_isolated_levels_reject_invalid_note_spans(start, end):
+    with pytest.raises(ValueError, match="starts and positive durations"):
+        measure_note_levels(np.zeros(16000), 16000, [_note(start, end, 55)], method="rms")
+
+
+def test_unknown_level_method_is_rejected():
+    with pytest.raises(ValueError, match="method"):
+        measure_note_levels(np.zeros(16000), 16000, [], method="unknown")

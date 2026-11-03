@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from fractions import Fraction
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
@@ -279,6 +279,7 @@ def notes_from_track(
 
 def measure_note_levels(
     x: np.ndarray, sr: int, notes: Sequence[TrackedNote], a4: float = 440.0, *, harmonics: int = 4,
+    method: Literal["growth", "rms"] = "growth",
 ) -> list[TrackedNote]:
     """Estimate relative pluck levels from the recording, not model probabilities.
 
@@ -289,10 +290,32 @@ def measure_note_levels(
 
     Timing and pitch are held fixed. This is an energy estimate, not calibrated MIDI
     velocity; overlapping partials and changing effects can still bias the result.
+
+    ``method="rms"`` measures sounding power on an isolated monophonic channel,
+    rather than subtracting the previous note. Use it for repeated notes that can
+    be quieter than their predecessors, including individual hex-pickup strings.
+    It measures 10--120 ms after onset, bounded by the annotated note end; notes
+    shorter than 10 ms use their whole span. Global DC is removed. This mode cannot
+    separate simultaneous instruments or distinguish a new pluck from a ringing
+    tail, and therefore is not appropriate for a mixed polyphonic recording.
     """
     x = np.asarray(x, dtype=float)
     if x.ndim != 1 or not len(x) or not np.isfinite(x).all() or sr <= 0 or a4 <= 0 or harmonics < 1:
         raise ValueError("need finite mono audio, positive sample rate/tuning and harmonics")
+    if method not in ("growth", "rms"):
+        raise ValueError("note level method must be 'growth' or 'rms'")
+    if method == "rms":
+        centered = x - np.mean(x)
+        result = []
+        for note in notes:
+            if not np.isfinite([note.start, note.end]).all() or note.start < 0 or note.end <= note.start:
+                raise ValueError("notes need finite nonnegative starts and positive durations")
+            start = note.start + .01 if note.end - note.start > .01 else note.start
+            lo = min(len(x), round(start * sr))
+            hi = min(len(x), round(min(note.end, note.start + .12) * sr))
+            energy = float(np.mean(centered[lo:hi] ** 2)) if hi > lo else 0.0
+            result.append(replace(note, level_db=float(10 * np.log10(max(energy, 1e-20)))))
+        return result
     size = max(64, round(sr * 4096 / 44100))
     hop = max(1, round(sr * 512 / 44100))
     freqs = np.fft.rfftfreq(size, 1 / sr)

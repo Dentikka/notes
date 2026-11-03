@@ -171,6 +171,15 @@ Python: `measure_note_levels(audio, sr, notes, a4)` followed by
 `tracked_music(notes, peak_normalize=True)`. This estimates pluck energy, not exact
 instrument velocity; timing, articulation and note endings still need separate checks.
 
+For an isolated monophonic channel, `measure_note_levels(audio, sr, notes,
+method="rms")` measures sounding power during 10–120 ms after onset, capped at
+the annotated note end (very short notes use their whole span). It preserves
+quieter repeated notes that positive spectral growth can mistake for silence.
+Global DC is removed. This mode includes any previous ringing and cannot separate
+simultaneous instruments; use it on isolated voices or individual hex-pickup
+strings, not a full mix. Both modes estimate relative levels, not calibrated MIDI
+velocity. The default remains `method="growth"`.
+
 Python APIs: `template_track`, `notes_from_templates`, `instrument_templates` in
 `notes.ears.polyphonic`; `notes_from_track(..., sustain_unvoiced=True)` and
 `tracked_music(notes, contours=True)` in `notes.ears.transcribe`. The latter returns
