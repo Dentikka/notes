@@ -56,6 +56,8 @@ class AcousticGuitar(Instrument):
     ``body_phase="minimum"`` optionally concentrates its body's impulse response
     earlier without redesigning the magnitude spectrum; the default is "designed".
     Per-note ``pick_position`` and ``pick_hardness`` override the pluck in either model.
+    ``dispersion_fit="bracketed"`` fixes resonance-search failures in the waveguide
+    stiffness fit; "legacy" preserves its original waveform. Unused by "coupled".
     """
 
     program: int | None = 25
@@ -69,6 +71,7 @@ class AcousticGuitar(Instrument):
     fretting: bool = False
     excitation: str = "velocity"
     stiffness: float = 4e-5
+    dispersion_fit: str = "legacy"
     polarization: float = 0.3
     prompt_decay: float = 0.0
     velocity_brightness: float = 0.0
@@ -85,6 +88,8 @@ class AcousticGuitar(Instrument):
     level: float = 0.25
 
     def __post_init__(self) -> None:
+        if self.dispersion_fit not in ("legacy", "bracketed"):
+            raise ValueError("dispersion_fit must be legacy or bracketed")
         if self.body_phase not in ("designed", "minimum"):
             raise ValueError("body_phase must be designed or minimum")
         if self.model not in ("waveguide", "coupled"):
@@ -130,6 +135,7 @@ class AcousticGuitar(Instrument):
                                 pick=self.pick_position if pick is None else pick, hardness=hardness,
                                 stiffness=self.stiffness,
                                 second=self.polarization, excitation=self.excitation,
+                                dispersion_fit=self.dispersion_fit,
                                 prompt_t60=(self.prompt_decay * _t60(self.sustain, freq)
                                             if self.prompt_decay > 0 else None))
 

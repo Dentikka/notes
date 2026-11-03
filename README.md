@@ -315,6 +315,13 @@ original steel/electric/bass excitation defaults. Realism is not yet established
 The displacement construction follows the ideal-pluck formulation in
 [Julius O. Smith, Physical Audio Signal Processing: The Ideal Plucked String](https://www.dsprelated.com/freebooks/pasp/Ideal_Plucked_String.html).
 
+The waveguide instruments (`AcousticGuitar`, `NylonGuitar`, `ElectricGuitar`,
+`BassGuitar`) accept `dispersion_fit="bracketed"`. This fixes an inner resonance
+search that could abort coefficient fitting and silently disable string stiffness.
+The original two-allpass approximation and its reference near 1.5 kHz remain;
+this is a numerical correction, not a realism guarantee. Default `"legacy"`
+preserves the original waveforms.
+
 `AcousticGuitar(model="coupled")` is a separate experimental string/body model:
 positive-mass designed body resonances absorb string energy as well as color its
 output. Reactive bridge loading is compensated to retain the requested fundamental.
