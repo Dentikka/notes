@@ -66,7 +66,8 @@ def _fraction_coefficient(frac: float, w0: float) -> float:
         return (1.0 - frac) / (1.0 + frac)
 
 
-def _loop(f0: float, sr: int, t60: float, t60_high: float, stiffness: float):
+def _loop(f0: float, sr: int, t60: float, t60_high: float, stiffness: float,
+          dispersion_fit: str = "legacy"):
     """Integer delay and loop filter (losses, dispersion, fine tuning) that resonate at f0.
 
     The partials of the loop sit where its total phase delay D(w) satisfies w D(w) = 2 pi h.
@@ -98,7 +99,13 @@ def _loop(f0: float, sr: int, t60: float, t60_high: float, stiffness: float):
                 delay = length + _lowpass_delay(a, w) + stages * _allpass_delay(d, w)
                 return w * (delay + _allpass_delay(c, w)) - 2 * np.pi * h
 
-            wh = brentq(phase, 0.5 * h * w0, min(1.5 * h * w0, 0.999 * np.pi))
+            if dispersion_fit == "bracketed":
+                # Trial dispersion coefficients can move this mode far outside
+                # 0.5..1.5 times its nominal frequency. A failed inner bracket
+                # used to abort the outer coefficient fit and disable stiffness.
+                wh = brentq(phase, w0, 0.999 * np.pi)
+            else:
+                wh = brentq(phase, 0.5 * h * w0, min(1.5 * h * w0, 0.999 * np.pi))
             return wh / (h * w0) - np.sqrt(1 + stiffness * h * h)
 
         try:
@@ -149,6 +156,7 @@ def steel_string(
     second: float = 0.3,
     prompt_t60: float | None = None,
     excitation: str = "velocity",
+    dispersion_fit: str = "legacy",
 ) -> np.ndarray:
     """n samples of a string plucked at fraction `pick` of its length from the bridge.
 
@@ -160,9 +168,16 @@ def steel_string(
     `detune` cents sharp, rings 1.4x longer and is mixed at `second`. With `prompt_t60`
     the first polarisation decays in `prompt_t60` instead (its treble no slower) and the
     second one in `t60`.
+
+    `dispersion_fit="bracketed"` expands the inner resonance search so extreme
+    trial coefficients do not silently disable the stiffness fit. It retains
+    the two-allpass approximation and its 1.5 kHz reference, not an exact modal
+    string. "legacy" preserves the original waveform.
     """
     if excitation not in ("velocity", "displacement"):
         raise ValueError("excitation must be velocity or displacement")
+    if dispersion_fit not in ("legacy", "bracketed"):
+        raise ValueError("dispersion_fit must be legacy or bracketed")
     impulse = np.zeros(n)
     out = np.zeros(n)
     detuned = freq * 2.0 ** (detune / 1200.0)
@@ -174,7 +189,8 @@ def steel_string(
     for weight, f0, decay, decay_high in strings:
         if weight <= 0:
             continue
-        length, b, a = _loop(f0, sr, decay, decay_high, stiffness)
+        length, b, a = (_loop(f0, sr, decay, decay_high, stiffness) if dispersion_fit == "legacy"
+                        else _loop(f0, sr, decay, decay_high, stiffness, dispersion_fit))
         burst = _pluck(length, sr, pick, hardness, noise, rng, excitation)
         impulse[:] = 0.0
         impulse[: min(length, n)] = burst[: min(length, n)]

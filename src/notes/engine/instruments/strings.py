@@ -169,6 +169,9 @@ class ElectricGuitar(Instrument):
 
     Per-note ``pick_position`` and ``pick_hardness`` override the constructor
     controls before fret geometry and mute/legato/velocity modifiers.
+    ``dispersion_fit="bracketed"`` avoids silently disabling stiffness when a
+    trial resonance lies outside the old narrow search. Default "legacy" retains
+    the original waveform; both use the same two-allpass dispersion model.
 
     Per-note parameters: ``palm_mute=True`` for chugs that ring `mute_decay` seconds (T60)
     with the pluck softened to `mute_brightness`; ``legato=True`` for a note sounded by the
@@ -193,6 +196,7 @@ class ElectricGuitar(Instrument):
     brightness: float = 0.7
     pick_position: float = 0.15
     stiffness: float = 4e-5
+    dispersion_fit: str = "legacy"
     polarization: float = 0.3
     prompt_decay: float = 0.0
     pitch_attack: float = 8.0
@@ -208,6 +212,8 @@ class ElectricGuitar(Instrument):
     level: float = 0.5
 
     def __post_init__(self) -> None:
+        if self.dispersion_fit not in ("legacy", "bracketed"):
+            raise ValueError("dispersion_fit must be legacy or bracketed")
         if self.pickup not in _PICKUP_POSITION:
             raise ValueError(f"pickup must be one of {', '.join(_PICKUP_POSITION)}, got {self.pickup!r}")
         position = _PICKUP_POSITION[self.pickup] if self.pickup_position is None else self.pickup_position
@@ -269,6 +275,7 @@ class ElectricGuitar(Instrument):
             prompt = self.prompt_decay * t60 if self.prompt_decay > 0 and not muted else None
             y = steel_string(v.freq, m, sr, rng, t60=t60, t60_high=t60_high, pick=pick,
                              hardness=hardness, stiffness=self.stiffness, second=self.polarization,
+                             dispersion_fit=self.dispersion_fit,
                              prompt_t60=prompt)
             if spatial:
                 from notes.engine.pickup import spatial_pickup
@@ -307,6 +314,8 @@ class BassGuitar(Instrument):
     800 Hz, nothing above ~4 kHz) instead of straight into the desk. Per-note
     ``palm_mute=True`` gives a muted thump, ``legato=True`` a note without the pitch kick
     and the clank of a pluck.
+    ``dispersion_fit="bracketed"`` opts into the corrected stiffness search;
+    "legacy" preserves the original waveform.
     """
 
     program: int | None = 33
@@ -315,6 +324,7 @@ class BassGuitar(Instrument):
     brightness: float = 0.4
     pick_position: float = 0.22
     stiffness: float = 5e-5
+    dispersion_fit: str = "legacy"
     polarization: float = 0.2
     pitch_attack: float = 15.0
     tone: float = 0.5
@@ -323,6 +333,10 @@ class BassGuitar(Instrument):
     cabinet: bool = False
     release: float = 0.08
     level: float = 0.19
+
+    def __post_init__(self) -> None:
+        if self.dispersion_fit not in ("legacy", "bracketed"):
+            raise ValueError("dispersion_fit must be legacy or bracketed")
 
     def release_time(self) -> float:
         return self.release
@@ -350,7 +364,8 @@ class BassGuitar(Instrument):
         def string(m: int) -> np.ndarray:
             y = steel_string(v.freq, m, sr, rng, t60=t60, t60_high=min(self.treble_decay, t60),
                              pick=self.pick_position, hardness=self.brightness * (0.7 if muted else 1.0),
-                             noise=0.05, stiffness=self.stiffness, second=self.polarization)
+                             noise=0.05, stiffness=self.stiffness, second=self.polarization,
+                             dispersion_fit=self.dispersion_fit)
             return (y - delay(y, lag)) / (2.0 * np.sin(np.pi * position)) if lag >= 1 else y
 
         gate = ctx.samples(v.dur)
