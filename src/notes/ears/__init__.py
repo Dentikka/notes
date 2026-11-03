@@ -1,6 +1,7 @@
 """Ears: how a render sounds to a model (CLAP, needs ``pip install 'notes[ears]'``), and how it
 measures up against a reference recording (`compare`, numpy and scipy only)."""
 
+from notes.ears.aesthetics import AestheticsEar, fetch_aesthetics
 from notes.ears.clap import CLAP_SAMPLE_RATE, DEFAULT_MODEL, Ear, Tag, cosine, format_report, to_clap_rate, windows
 from notes.ears.compare import ANALYSIS_RATE, Comparison, compare, format_comparison, listening, load
 from notes.ears.fit import FitResult, fit_loss, fit_reference
@@ -18,6 +19,7 @@ __all__ = [
     "TEMPLATES",
     "VOCABULARY",
     "Comparison",
+    "AestheticsEar",
     "Ear",
     "FitResult",
     "InharmonicPartial",
@@ -29,6 +31,7 @@ __all__ = [
     "compare",
     "cosine",
     "fit_loss",
+    "fetch_aesthetics",
     "fit_reference",
     "format_comparison",
     "format_report",
