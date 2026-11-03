@@ -9,6 +9,7 @@ import numpy as np
 from notes.engine.articulation import pitch_curve, variable_rate_read
 from notes.engine.base import Effect, Instrument, RenderContext, Voice
 from notes.engine.dsp import delay, vel_gain
+from notes.engine.effects.body import _LENGTH as _BODY_TAIL
 from notes.engine.effects.body import Body
 from notes.engine.effects.tone import Filter
 from notes.engine.instruments.strings import (
@@ -52,12 +53,19 @@ class AcousticGuitar(Instrument):
     ``model="coupled"`` opts into a passive string/body boundary; the designed
     body affects modal decay as well as radiation. ``coupling`` scales mobility,
     ``radiation`` moves from bridge velocity (0) toward acceleration (1).
-    ``body`` and ``excitation`` apply to the original waveguide model only.
+    ``body`` mixes body radiation in waveguide/modal modes; ``excitation``
+    selects a readout only in the original waveguide model.
     ``body_phase="minimum"`` optionally concentrates its body's impulse response
     earlier without redesigning the magnitude spectrum; the default is "designed".
     Per-note ``pick_position`` and ``pick_hardness`` override the pluck in either model.
     ``dispersion_fit="bracketed"`` fixes resonance-search failures in the waveguide
-    stiffness fit; "legacy" preserves its original waveform. Unused by "coupled".
+    stiffness fit; "legacy" preserves its original waveform. Unused by the other models.
+    ``model="modal"`` renders analytic pluck-force modes with zero initial
+    velocity and a statically preloaded designed body. Body filtering happens
+    inside each voice; bends affect the string before that filter. String losses
+    are prescribed, not coupled to body mobility. ``excitation`` and
+    ``dispersion_fit`` do not affect this mode; it uses exact modal frequencies.
+    Per-note ``stiffness`` may override its inharmonicity coefficient.
     """
 
     program: int | None = 25
@@ -92,21 +100,33 @@ class AcousticGuitar(Instrument):
             raise ValueError("dispersion_fit must be legacy or bracketed")
         if self.body_phase not in ("designed", "minimum"):
             raise ValueError("body_phase must be designed or minimum")
-        if self.model not in ("waveguide", "coupled"):
-            raise ValueError("model must be waveguide or coupled")
+        if self.model not in ("waveguide", "coupled", "modal"):
+            raise ValueError("model must be waveguide, coupled or modal")
         if not np.isfinite(self.coupling) or self.coupling <= 0:
             raise ValueError("coupling must be finite and positive")
         if not np.isfinite(self.radiation) or not 0 <= self.radiation <= 1:
             raise ValueError("radiation must be between 0 and 1")
         if self.excitation not in ("velocity", "displacement"):
             raise ValueError("excitation must be velocity or displacement")
+        if self.model == "modal":
+            for name in ("sustain", "treble_decay", "body_size", "release"):
+                if not np.isfinite(getattr(self, name)) or getattr(self, name) <= 0:
+                    raise ValueError(f"{name} must be finite and positive")
+            for name in ("stiffness", "polarization", "prompt_decay", "diffuse", "pick_noise", "level",
+                         "body", "brightness", "course_lag", "octave_level"):
+                if not np.isfinite(getattr(self, name)) or getattr(self, name) < 0:
+                    raise ValueError(f"{name} must be finite and nonnegative")
+            if not np.isfinite(self.velocity_brightness) or not 0 <= self.velocity_brightness <= 1:
+                raise ValueError("velocity_brightness must be between 0 and 1")
+            if not np.isfinite(self.course_detune):
+                raise ValueError("course_detune must be finite")
 
     def release_time(self) -> float:
-        return self.release
+        return self.release+_BODY_TAIL if self.model == "modal" else self.release
 
     def inserts(self) -> tuple[Effect, ...]:
-        if self.model == "coupled":
-            return ()  # Radiation and body dynamics already form part of each coupled voice.
+        if self.model in ("coupled", "modal"):
+            return ()  # Body radiation is already part of each voice.
         return (Filter(kind="highpass", cutoff=60.0),
                 Body(size=self.body_size, diffuse=self.diffuse, mix=self.body, phase=self.body_phase))
 
@@ -142,6 +162,10 @@ class AcousticGuitar(Instrument):
         return render(n) if curve is None else variable_rate_read(render, curve, interpolation=interpolation)
 
     def voice(self, v: Voice, ctx: RenderContext, rng: np.random.Generator) -> np.ndarray:
+        if self.model == "modal":
+            from notes.engine.modal_acoustic import modal_acoustic_voice
+
+            return modal_acoustic_voice(self, v, ctx, rng)
         sr = ctx.sr
         legato = bool(v.params.get("legato", False))
         gate = ctx.samples(v.dur)

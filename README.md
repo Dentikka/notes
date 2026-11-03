@@ -365,7 +365,20 @@ acceleration. `body_size`, `diffuse`, the decay and pick controls remain availab
 `body` and `excitation` select behavior only in the original `model="waveguide"`.
 Both models accept per-note `pick_position` and `pick_hardness` overrides.
 
-The waveguide acoustic/nylon body can optionally use `body_phase="minimum"`
+`AcousticGuitar(model="modal")` renders analytic pluck-force modes with zero
+initial velocity and a statically preloaded body. Pitch curves change the string
+before body filtering, preserving the body's resonant frequencies. The body
+tail is included in each voice; string losses are prescribed rather than
+coupled to body mobility. Six/twelve strings, explicit string selection,
+per-note pick controls and the existing pitch contours remain available.
+`excitation` and `dispersion_fit` are unused in this mode. The example
+`examples/reference_modal_acoustic.py` contains a fitted candidate; on two
+annotated performances it reduced the physical objective in all six regions
+and increased MERT in five, with one regression. Several isolated notes also
+regressed, so the original waveguide remains the default. Excitation and body
+responses are generated mathematically without recorded samples or measured IRs.
+
+The waveguide/modal acoustic body can optionally use `body_phase="minimum"`
 (`Body(phase="minimum")` as an effect). This moves energy toward the start of the
 mathematically designed body response, approximately retaining its magnitude
 spectrum and the original tail allocation. The default `"designed"` preserves
