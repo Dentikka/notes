@@ -159,6 +159,14 @@ class ElectricGuitar(Instrument):
 
     ``amplified=False`` bypasses the amp and cabinet for a direct pickup signal.
 
+    Optional ``pickup_position``, ``pickup_width`` and ``coil_spacing`` enable a
+    spatial pickup with fractional delays and a uniform sensing aperture. These
+    lengths are fractions of the open string when fretting=True, otherwise of
+    the vibrating string. Spacing selects two equal in-phase coils. The whole
+    aperture must lie inside the vibrating string. Fundamental gain is normalized.
+    ``pickup_cutoff`` and ``pickup_q`` override the electrical lowpass independently.
+    Default None/zero values preserve the original point pickup and its filter.
+
     Per-note ``pick_position`` and ``pick_hardness`` override the constructor
     controls before fret geometry and mute/legato/velocity modifiers.
 
@@ -175,6 +183,11 @@ class ElectricGuitar(Instrument):
     cabinet: str = "greenback"
     amplified: bool = True
     pickup: str = "bridge"
+    pickup_position: float | None = None
+    pickup_width: float = 0.0
+    coil_spacing: float = 0.0
+    pickup_cutoff: float | None = None
+    pickup_q: float | None = None
     sustain: float = 9.0
     treble_decay: float = 2.5
     brightness: float = 0.7
@@ -197,12 +210,27 @@ class ElectricGuitar(Instrument):
     def __post_init__(self) -> None:
         if self.pickup not in _PICKUP_POSITION:
             raise ValueError(f"pickup must be one of {', '.join(_PICKUP_POSITION)}, got {self.pickup!r}")
+        position = _PICKUP_POSITION[self.pickup] if self.pickup_position is None else self.pickup_position
+        if not np.isfinite(position) or not 0 < position < 1:
+            raise ValueError("pickup_position must be finite and between 0 and 1")
+        if (not np.isfinite(self.pickup_width) or self.pickup_width < 0
+                or not np.isfinite(self.coil_spacing) or self.coil_spacing < 0):
+            raise ValueError("pickup_width and coil_spacing must be finite and nonnegative")
+        extent = (self.pickup_width+self.coil_spacing)/2
+        if position-extent < 0 or position+extent > 1:
+            raise ValueError("pickup aperture must lie inside the open string")
+        for name in ("pickup_cutoff", "pickup_q"):
+            value = getattr(self, name)
+            if value is not None and (not np.isfinite(value) or value <= 0):
+                raise ValueError(f"{name} must be finite and positive")
 
     def release_time(self) -> float:
         return self.release
 
     def inserts(self) -> tuple[Effect, ...]:
         freq, q = _PICKUP_RESONANCE[self.pickup]
+        freq = freq if self.pickup_cutoff is None else self.pickup_cutoff
+        q = q if self.pickup_q is None else self.pickup_q
         if not self.amplified:
             return (Filter(kind="lowpass", cutoff=freq, q=q),)
         return (
@@ -231,6 +259,9 @@ class ElectricGuitar(Instrument):
             hardness *= self.wound_brightness
         scale = fret_scale(v.pitch, string) if self.fretting else 1.0
         position = _along(_PICKUP_POSITION[self.pickup], scale)
+        spatial = self.pickup_position is not None or self.pickup_width > 0 or self.coil_spacing > 0
+        if spatial:
+            position = (_PICKUP_POSITION[self.pickup] if self.pickup_position is None else self.pickup_position)/scale
         pick = _along(pick_position, scale)
         lag = int(round(position * sr / v.freq))
 
@@ -239,6 +270,10 @@ class ElectricGuitar(Instrument):
             y = steel_string(v.freq, m, sr, rng, t60=t60, t60_high=t60_high, pick=pick,
                              hardness=hardness, stiffness=self.stiffness, second=self.polarization,
                              prompt_t60=prompt)
+            if spatial:
+                from notes.engine.pickup import spatial_pickup
+
+                return spatial_pickup(y, v.freq, sr, position, self.pickup_width/scale, self.coil_spacing/scale)
             # The pickup senses the string at one point: a comb that shapes the harmonics.
             return (y - delay(y, lag)) / (2.0 * np.sin(np.pi * position)) if lag >= 1 else y
 
