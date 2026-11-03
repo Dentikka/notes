@@ -2,7 +2,8 @@
 
 Six mathematical peak filters were estimated from three FreePats FSBS DI/amp
 note pairs. They improve spectral profiles beyond those notes, with exceptions
-under the auxiliary MERT diagnostic. No recordings or measured IRs are loaded.
+under MERT, especially A2. The synthetic source/amp interaction remains unresolved.
+No recordings or measured IRs are loaded.
 The baseline keeps the same source, amplifier, notes and excitation gain.
 """
 from notes import ElectricGuitar, Filter, Note, Rest, Song, Track, cat

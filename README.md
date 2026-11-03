@@ -528,4 +528,8 @@ The correction reduced profile error on other FSBS notes, but some notes regress
 under MERT; it remains a reference-specific experiment. The stored DI files have
 nearly equal full-scale peaks; their original physical input gains and exact
 synchronous pairing remain unknown.
+On A2, the correction improves MERT for the recorded-DI analysis chain
+(0.846 to 0.914) but worsens it for synthetic input under two independently
+measured tuning anchors. The synthetic source/amp interaction remains unresolved;
+this is not a universal rock-guitar preset.
 Source: [FreePats FSBS distorted electric guitar](https://freepats.zenvoid.org/ElectricGuitar/distorted-electric-guitar.html).
