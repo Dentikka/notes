@@ -297,6 +297,15 @@ attack errors while removing an overall gain difference. It requires an isolated
 note with a known pitch and never produces a realism/approval label. Reference
 recordings remain outside the synthesizer and the repository.
 
+`notes.ears.known_note_tuning(audio, sr, expected_hz)` refines mean tuning of a
+stable isolated note with a known nominal pitch. It fits demodulated phase in an
+explicit window and checks agreement of detected harmonics. Check `reliable`
+before using its `f0`: silence, noise, wrong priors, bends or missing fundamentals
+can invalidate the estimate. The default window is 0.15–0.75 s and requires 100 ms
+edge margins. This is a calibration tool, not an unknown-melody transcriber or a
+replacement for the existing YIN path. It helps prevent a distorted reference's
+pitch-estimator bias from being mistaken for a timbre mismatch.
+
 `NylonGuitar()` is an experimental procedural classical-guitar variant using a
 rounded triangular-displacement waveguide readout. It supports the acoustic
 instrument's body and twelve-string controls. `AcousticGuitar(fretting=True)` and
