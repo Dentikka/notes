@@ -295,6 +295,28 @@ allowing known string properties to be set without altering every key. The
 limited `examples/piano_contact_study.py` compares A4/D5/E5 contact settings;
 a G5 regression prevents treating them as a universal treble preset.
 
+Optional `notes[quality]` adds Audiobox aesthetic diagnostics. Setup is explicit:
+
+```python
+from notes.ears import AestheticsEar, fetch_aesthetics
+
+cache = fetch_aesthetics()  # verified official source/license and safetensors, outside the repo
+quality = AestheticsEar(cache)  # local-only load, CPU FP32 by default
+scores = quality.score_audio(audio, sample_rate)  # CE, CU, PC, PQ
+```
+
+Source and weights are pinned and hash-checked; the backend is imported under a
+private namespace. Loading never implicitly downloads or installs dependencies.
+The default frontend downmixes to mono, normalizes to -24 LUFS without clipping,
+resamples to 16 kHz and uses the official 10-second masks and weighted pooling.
+It rejects silence/DC. These are aesthetic/technical scores, not a realism
+certificate: the known piano preference passed 4/4, but quantization controls
+failed on violin and one distorted guitar. A sine can score highly. Keep
+reference similarity and physical errors alongside them; when copying a sound,
+compare CE to the reference rather than maximizing enjoyment. Upstream:
+[Meta Audiobox Aesthetics: Unified Automatic Quality Assessment for Speech, Music, and Sound](https://arxiv.org/pdf/2502.05139),
+[official source and license](https://github.com/facebookresearch/audiobox-aesthetics).
+
 Known-note reference diagnostics are available in `notes.ears.note_profile`:
 `profile_note(mono, sr, expected_f0)` measures tuning, harmonic envelopes and attack;
 `compare_profiles(reference, candidate)` separates harmonic, envelope, pitch and
