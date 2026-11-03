@@ -180,6 +180,13 @@ simultaneous instruments; use it on isolated voices or individual hex-pickup
 strings, not a full mix. Both modes estimate relative levels, not calibrated MIDI
 velocity. The default remains `method="growth"`.
 
+`note.param(source_gain_db=...)` changes a note's signal level after synthesis
+and before instrument inserts and track effects, without changing its velocity,
+pitch or timing. This separates reference-level calibration from the performance
+controls that can also change hammer/pick spectra. The range is -120..120 dB;
+the default/explicit zero preserves the original waveform exactly. With a guitar
+amplifier, this gain changes the operating point and therefore distortion.
+
 Python APIs: `template_track`, `notes_from_templates`, `instrument_templates` in
 `notes.ears.polyphonic`; `notes_from_track(..., sustain_unvoiced=True)` and
 `tracked_music(notes, contours=True)` in `notes.ears.transcribe`. The latter returns
