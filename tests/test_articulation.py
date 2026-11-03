@@ -2,7 +2,21 @@ import numpy as np
 import pytest
 from _audio import estimate_f0, inharmonic_ratio
 
-from notes import DrumKit, E, ElectricGuitar, Note, Q, Song, Track, melody
+from notes import (
+    AcousticGuitar,
+    BassGuitar,
+    DrumKit,
+    E,
+    ElectricGuitar,
+    Note,
+    NylonGuitar,
+    Pluck,
+    Q,
+    Song,
+    SynthGuitar,
+    Track,
+    melody,
+)
 from notes.engine import RenderContext, Voice
 from notes.engine.articulation import pitch_curve, variable_rate_read
 from notes.engine.dsp import karplus_strong
@@ -84,3 +98,69 @@ def test_pushed_vibrato_only_raises_the_pitch():
     assert vib.min() >= 0.0 and vib.max() == pytest.approx(0.6, abs=0.01)
     with pytest.raises(ValueError, match="vibrato_shape"):
         pitch_curve({"vibrato": 0.3}, SR, SR, vibrato_shape="square")
+
+
+def test_sinc_pitch_read_tracks_analytic_tone_without_linear_interpolation_coloration():
+    sr, freq, n = 22050, 4000., 8192
+    curve = np.full(n, .35)
+    ratio = 2**(curve/12)
+    positions = np.r_[0., np.cumsum(ratio[:-1])]
+    source = lambda m: np.sin(2*np.pi*freq*np.arange(m)/sr)  # noqa: E731
+    expected = np.sin(2*np.pi*freq*positions/sr)[128:-128]
+    errors = {}
+    for mode in ("linear", "sinc"):
+        actual = variable_rate_read(source, curve, interpolation=mode)[128:-128]
+        errors[mode] = np.linalg.norm(actual-expected)/np.linalg.norm(expected)
+    assert errors["sinc"] < 1e-3
+    assert errors["sinc"] < errors["linear"]/100
+
+
+def test_sinc_pitch_up_filters_components_that_would_alias():
+    sr, n = 24000, 8192
+    def source(m):
+        t = np.arange(m)/sr
+        return np.sin(2*np.pi*1000*t) + np.sin(2*np.pi*10000*t)
+    curve = np.full(n, 12.)
+    expected = np.sin(2*np.pi*2000*np.arange(n)/sr)[128:-128]
+    old = variable_rate_read(source, curve)[128:-128]
+    new = variable_rate_read(source, curve, interpolation="sinc")[128:-128]
+    assert np.linalg.norm(new-expected) < np.linalg.norm(old-expected)/1000
+
+
+def test_sinc_identity_and_impulse_timing():
+    source = lambda m: np.sin(np.arange(m)*.73)  # noqa: E731
+    assert np.array_equal(variable_rate_read(source, np.zeros(1000)),
+                          variable_rate_read(source, np.zeros(1000), interpolation="sinc"))
+    def pulse(m):
+        y = np.zeros(m)
+        y[1000] = 1
+        return y
+    y = variable_rate_read(pulse, np.full(2000, 12.), interpolation="sinc")
+    assert abs(y).argmax() == 500
+
+
+@pytest.mark.parametrize("instrument", [
+    Pluck(), ElectricGuitar(amplified=False), BassGuitar(), AcousticGuitar(), NylonGuitar(),
+    AcousticGuitar(twelve=True), AcousticGuitar(model="coupled"), SynthGuitar(),
+])
+def test_string_instruments_forward_sinc_per_note_control(instrument):
+    ctx = RenderContext(sr=22050, bpm=60)
+    params = {"pitch_points": [[0, .2], [.3, .35]], "pitch_interpolation": "sinc"}
+    voice = Voice(330., 64., .4, .7, params)
+    y = instrument.voice(voice, ctx, np.random.default_rng(17))
+    assert len(y) == round((voice.dur+instrument.release)*ctx.sr)
+    assert np.isfinite(y).all() and abs(y).max() > 1e-6
+    with pytest.raises(ValueError, match="interpolation"):
+        instrument.voice(Voice(330., 64., .4, .7, {**params, "pitch_interpolation": "invalid"}),
+                         ctx, np.random.default_rng(17))
+
+
+def test_pitch_reader_rejects_invalid_curves_and_bounds_sinc_support():
+    def source(m):
+        return np.ones(m)
+    for curve in (np.array([np.nan]), np.zeros((2, 2))):
+        with pytest.raises(ValueError, match="pitch curve"):
+            variable_rate_read(source, curve)
+    with pytest.raises(ValueError, match="four octaves"):
+        variable_rate_read(source, np.full(10, 49.), interpolation="sinc")
+    assert variable_rate_read(source, np.array([]), interpolation="sinc").size == 0

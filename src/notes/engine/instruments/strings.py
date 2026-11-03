@@ -96,7 +96,8 @@ def _finger_drift(n: int, sr: int, rng: np.random.Generator) -> np.ndarray:
 def _string(v: Voice, n: int, sr: int, render_at_fixed_pitch) -> np.ndarray:
     """Render n samples, following the note's vibrato, bend or slide if it has one."""
     curve = pitch_curve(v.params, n, sr)
-    return render_at_fixed_pitch(n) if curve is None else variable_rate_read(render_at_fixed_pitch, curve)
+    return render_at_fixed_pitch(n) if curve is None else variable_rate_read(
+        render_at_fixed_pitch, curve, interpolation=v.params.get("pitch_interpolation", "linear"))
 
 
 @register_instrument("pluck")
@@ -250,7 +251,8 @@ class ElectricGuitar(Instrument):
         if self.pitch_drift:
             drift = _finger_drift(n, sr, rng) * self.pitch_drift / 100.0
             curve = drift if curve is None else curve + drift
-        y = string(n) if curve is None else variable_rate_read(string, curve)
+        y = string(n) if curve is None else variable_rate_read(
+            string, curve, interpolation=v.params.get("pitch_interpolation", "linear"))
         # A hammered or pulled note: quieter, and no pick to click.
         y = y * _LEGATO_LEVEL if legato else y + self.pick_noise * _pick_click(n, sr, rng)
         return self.level * vel_gain(v.vel) * y * _gate(gate, n, sr, self.release)
@@ -322,7 +324,8 @@ class BassGuitar(Instrument):
         if self.pitch_attack and not legato:
             glide = self.pitch_attack / 100.0 * v.vel * np.exp(-np.arange(n) / (_TENSION_TAU * sr))
             curve = glide if curve is None else curve + glide
-        y = string(n) if curve is None else variable_rate_read(string, curve)
+        y = string(n) if curve is None else variable_rate_read(
+            string, curve, interpolation=v.params.get("pitch_interpolation", "linear"))
         if self.clank and not legato:
             k = min(n, int(0.03 * sr))
             burst = filt(rng.uniform(-1.0, 1.0, k), "bandpass", 3000.0, sr, 0.9) * np.exp(-np.arange(k) / (0.005 * sr))

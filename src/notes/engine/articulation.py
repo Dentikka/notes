@@ -87,13 +87,59 @@ def pitch_curve(
     return curve
 
 
-def variable_rate_read(render: Callable[[int], np.ndarray], curve: np.ndarray) -> np.ndarray:
+def variable_rate_read(render: Callable[[int], np.ndarray], curve: np.ndarray, *,
+                       interpolation: str = "linear") -> np.ndarray:
     """Play a fixed-pitch signal back at a varying rate so its pitch follows `curve` (semitones).
 
     `render(m)` must return m samples of the source; it is asked for exactly as many as the
-    readout consumes.
+    readout consumes, plus filter lookahead in sinc mode. The original linear
+    interpolation remains the default. Optional sinc interpolation suppresses
+    fractional-sample coloration and applies a rate-dependent anti-alias filter.
+    Its upward rate is limited to 16x (four octaves) to bound the filter support.
     """
+    if interpolation not in ("linear", "sinc"):
+        raise ValueError("pitch interpolation must be linear or sinc")
+    curve = np.asarray(curve, dtype=float)
+    if curve.ndim != 1 or not np.isfinite(curve).all():
+        raise ValueError("pitch curve must be a finite one-dimensional array")
+    if not len(curve):
+        return np.zeros(0)
     ratio = 2.0 ** (curve / 12.0)
+    if not np.isfinite(ratio).all() or np.any(ratio <= 0):
+        raise ValueError("pitch curve produces an invalid playback rate")
     position = np.concatenate(([0.0], np.cumsum(ratio[:-1])))
+    if interpolation == "sinc" and np.any(curve):
+        if ratio.max() > 16:
+            raise ValueError("sinc pitch interpolation supports at most four octaves upward")
+        return _sinc_read(render, position, ratio)
     source = render(int(np.ceil(position[-1])) + 2)
     return np.interp(position, np.arange(source.size), source)
+
+
+def _sinc_read(render: Callable[[int], np.ndarray], position: np.ndarray, ratio: np.ndarray) -> np.ndarray:
+    """Blackman-windowed sinc, 16 zero crossings on either side at the local rate.
+
+    Positions remain centered on the requested times: filter lookahead introduces
+    no extra event delay. Samples before the source begins are zero. Chunking
+    bounds temporary arrays independently of the note length.
+    """
+    cutoff = np.minimum(1.0, 1.0/ratio)
+    radius = int(np.ceil(16.0/cutoff.min()))
+    count = int(np.ceil(position[-1])) + radius + 1
+    source = np.asarray(render(count), dtype=float)
+    if source.shape != (count,) or not np.isfinite(source).all():
+        raise ValueError("pitch source must return the requested number of finite mono samples")
+    offsets = np.arange(-radius+1, radius+1)
+    output = np.empty(len(position))
+    for start in range(0, len(position), 4096):
+        stop = min(len(position), start+4096)
+        at = position[start:stop, None]
+        indices = np.floor(at).astype(np.int64) + offsets
+        distance = (at-indices) * cutoff[start:stop, None]
+        inside = abs(distance) < 16
+        window = .42 + .5*np.cos(np.pi*distance/16) + .08*np.cos(2*np.pi*distance/16)
+        weights = np.sinc(distance) * window * inside
+        weights /= weights.sum(axis=1, keepdims=True)
+        values = source[np.clip(indices, 0, count-1)] * (indices >= 0)
+        output[start:stop] = np.sum(weights*values, axis=1)
+    return output

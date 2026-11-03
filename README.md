@@ -99,6 +99,15 @@ or a new onset. `melody` estimates the dominant pitch over accompaniment; choose
 register carefully and inspect the result for octave errors. It retains measured
 bends/vibrato as per-note `pitch_points` (seconds, semitone offsets). This additive
 renderer parameter also works through IR JSON; existing vibrato/bend/slide remain available.
+For plucked strings, `part.param(pitch_interpolation="sinc")` opts into a
+Blackman-windowed sinc readout for those curves. It preserves upper partials more
+accurately than linear interpolation and filters components that would alias when
+pitch rises. Acoustic/nylon/electric guitars, bass, Pluck and SynthGuitar support
+it. The original linear readout remains the default; unmodulated notes are unchanged.
+The optional mode uses filter lookahead without moving note events, processes
+bounded chunks, and supports upward ratios up to 16x. This fixes a resampling
+approximation; it does not by itself establish instrument realism. See
+[Windowed Sinc Interpolation](https://www.dsprelated.com/freebooks/pasp/Windowed_Sinc_Interpolation.html).
 The legacy melody path splits notes at full-signal attacks, which can re-pick a held
 lead when accompaniment changes. Experimental `--melody-onsets pitch` instead uses
 energy at the estimated voice's harmonics. It can miss compressed attacks or still
