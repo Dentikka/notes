@@ -439,7 +439,8 @@ Spatial derivations: [pickup position and width](https://till.com/articles/Picku
 [equal pickup mixing](https://till.com/articles/PickupMixing/).
 
 `examples/reference_direct_guitar.py` exposes a frozen DI candidate and an optional
-baseline. The candidate improved note-profile diagnostics on eight other
-note/dynamic cases with two synthesis seeds at 22.05 kHz. MERT regressed on D3,
+baseline. The frozen candidate improved note-profile diagnostics on twelve other
+note/dynamic cases with two synthesis seeds at both 22.05 and 44.1 kHz, covering
+all six strings. MERT regressed on D3,
 so this is an experimental reference fit, not a universal clean-guitar preset or
 an established realism result. The default guitar remains unchanged.
