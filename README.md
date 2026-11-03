@@ -306,6 +306,14 @@ edge margins. This is a calibration tool, not an unknown-melody transcriber or a
 replacement for the existing YIN path. It helps prevent a distorted reference's
 pitch-estimator bias from being mistaken for a timbre mismatch.
 
+`notes.ears.string_inharmonicity(mono, sr, expected_hz)` estimates a plucked
+string's dimensionless stiffness coefficient from simultaneous partial phases.
+It subtracts the shared fundamental phase before fitting, avoiding a common
+pitch glide being mistaken for stiffness. The result includes per-partial
+diagnostics, residual error and `reliable`; coupled modes, unisons, missing
+fundamentals and departures from the simple string law can invalidate it.
+This is an analysis tool; it never inserts reference audio into a render.
+
 `NylonGuitar()` is an experimental procedural classical-guitar variant using a
 rounded triangular-displacement waveguide readout. It supports the acoustic
 instrument's body and twelve-string controls. `AcousticGuitar(fretting=True)` and
