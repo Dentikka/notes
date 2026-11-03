@@ -34,6 +34,8 @@ class Piano(Instrument):
     hammer_mass_scale=0.25..4 multiplies the hammer mass in the contact models;
     individual notes may override it with the same parameter. Default 1 preserves
     the original impact. This control is unused by legacy and soundboard models.
+    Per-note stiffness overrides the inharmonicity coefficient in hammer models;
+    it must be finite and nonnegative. Other models retain their existing controls.
     legacy preserves the original renderer.
     """
 
@@ -72,8 +74,16 @@ class Piano(Instrument):
             pedal = bool(v.params.get("pedal", False))
             tail = self.release_time() if pedal else self.release
             n = ctx.samples(v.dur + tail)
+            stiffness = self.stiffness
+            if "stiffness" in v.params:
+                try:
+                    stiffness = float(v.params["stiffness"])
+                except (TypeError, ValueError) as error:
+                    raise ValueError("per-note stiffness must be finite and nonnegative") from error
+                if not np.isfinite(stiffness) or stiffness < 0:
+                    raise ValueError("per-note stiffness must be finite and nonnegative")
             y = struck_string(v.freq, n, ctx.sr, v.vel, brightness=self.brightness,
-                              stiffness=self.stiffness, sustain=self.sustain, detune=self.detune,
+                              stiffness=stiffness, sustain=self.sustain, detune=self.detune,
                               radiation=self.model == "hammer_damped", attack_presence=self.attack_presence,
                               hammer_mass_scale=v.params.get("hammer_mass_scale", self.hammer_mass_scale))
             if not pedal:
