@@ -517,3 +517,19 @@ note/dynamic cases with two synthesis seeds at both 22.05 and 44.1 kHz, covering
 all six strings. MERT regressed on D3,
 so this is an experimental reference fit, not a universal clean-guitar preset or
 an established realism result. The default guitar remains unchanged.
+
+`examples/reference_rock_guitar.py` runs the spatial source through the existing
+amp and designed cabinet, then applies six optional mathematical peak filters.
+Their scalar gains were fitted from three real DI/processed note pairs,
+including a shared trough near 1.2 kHz. Only scalar filter settings enter the
+example; it loads no recordings or measured impulse responses. `build_song(baseline=True)`
+keeps the same source, part and amplifier without the additional filters.
+The correction reduced profile error on other FSBS notes, but some notes regress
+under MERT; it remains a reference-specific experiment. The stored DI files have
+nearly equal full-scale peaks; their original physical input gains and exact
+synchronous pairing remain unknown.
+On A2, the correction improves MERT for the recorded-DI analysis chain
+(0.846 to 0.914) but worsens it for synthetic input under two independently
+measured tuning anchors. The synthetic source/amp interaction remains unresolved;
+this is not a universal rock-guitar preset.
+Source: [FreePats FSBS distorted electric guitar](https://freepats.zenvoid.org/ElectricGuitar/distorted-electric-guitar.html).
