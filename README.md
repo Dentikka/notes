@@ -283,12 +283,17 @@ added to the instrument. The approved preset remains unchanged.
 `Piano(model="hammer_damped", hammer_mass_scale=1.7)` changes the nonlinear
 contact by multiplying the moving hammer's mass. The range is 0.25..4, default 1;
 `note.param(hammer_mass_scale=...)` overrides individual impacts. Both hammer
-models support it; legacy and soundboard ignore it. It changes contact excitation
+models support this control; legacy and soundboard ignore it. It changes contact excitation
 and therefore needs loudness matching when comparing timbres. It is not a pedal
 or output-brightness control. A frozen 1.7x candidate improved the MERT diagnostic
 on four of five new upper-register recordings, but harmonic error increased on G5
 and the C6 embedding slightly regressed. It remains an optional experiment; the
 listening-approved preset is unchanged.
+
+Per-note `stiffness=...` overrides inharmonicity in the two contact models,
+allowing known string properties to be set without altering every key. The
+limited `examples/piano_contact_study.py` compares A4/D5/E5 contact settings;
+a G5 regression prevents treating them as a universal treble preset.
 
 Known-note reference diagnostics are available in `notes.ears.note_profile`:
 `profile_note(mono, sr, expected_f0)` measures tuning, harmonic envelopes and attack;

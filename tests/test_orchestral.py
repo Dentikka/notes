@@ -143,3 +143,31 @@ def test_hammer_mass_rejects_invalid_constructor_and_note_values(mass):
         Piano(hammer_mass_scale=mass)
     with pytest.raises(ValueError, match="hammer_mass_scale"):
         render(Piano(model="hammer_damped"), params={"hammer_mass_scale": mass})
+
+
+@pytest.mark.parametrize("model", ["hammer", "hammer_damped"])
+@pytest.mark.parametrize("sr", [22050, 44100])
+def test_per_note_piano_stiffness_matches_constructor_override(model, sr):
+    changed = render(Piano(model=model), params={"stiffness": .0004}, sr=sr)
+    assert np.array_equal(changed, render(Piano(model=model, stiffness=.0004), sr=sr))
+    assert np.linalg.norm(changed-render(Piano(model=model), sr=sr)) > .01
+
+
+def test_zero_note_stiffness_and_score_json_roundtrip():
+    from notes import Note
+    from notes.engine.mixer import render_score
+    from notes.ir.score import Score
+
+    piano = Piano(model="hammer_damped")
+    assert np.array_equal(render(piano, params={"stiffness": 0}), render(Piano(model="hammer_damped", stiffness=0)))
+    score = Song(Track("piano", piano)(Note(76, dur=.2).param(stiffness=.0004, hammer_mass_scale=3.2)),
+                 bpm=60, sample_rate=22050, loudness=None).compile()
+    restored = Score.from_json(score.to_json())
+    assert restored.events[0].param("stiffness") == .0004
+    assert np.array_equal(render_score(score).audio, render_score(restored).audio)
+
+
+@pytest.mark.parametrize("stiffness", [-.001, float("nan"), float("inf"), "bad", None])
+def test_invalid_note_stiffness_is_rejected(stiffness):
+    with pytest.raises(ValueError, match="stiffness"):
+        render(Piano(model="hammer_damped"), params={"stiffness": stiffness})
