@@ -37,39 +37,39 @@ LENGTH = 64
 def build_song() -> Song:
     tracks = {
         'kick': Track('kick', RockKit(tune=-5, decay=.7, click=.6, kick_damping=.7, kick_body=.3),
-                      gain=.5),
+                      gain=2.5),
         'snare': Track('snare', RockKit(decay=.8, wires=.85, rimshot=.42),
                        fx=[Compressor(threshold=-17, ratio=2., attack=.012, release=.11),
-                           Room(size=.25, decay=.32, damp=.65, mix=.07)], gain=-1),
-        'hats': Track('hats', RockKit(decay=.7), gain=-4, pan=.22),
+                           Room(size=.25, decay=.32, damp=.65, mix=.07)], gain=2),
+        'hats': Track('hats', RockKit(decay=.7), gain=5, pan=.22),
         'toms': Track('toms', RockKit(decay=.75), fx=[Room(size=.3, decay=.35, mix=.06)],
-                      gain=-2, pan=-.18),
-        'cymbals': Track('cymbals', RockKit(decay=.65), gain=-7, pan=-.25),
+                      gain=0, pan=-.18),
+        'cymbals': Track('cymbals', RockKit(decay=.65), gain=-2, pan=-.25),
         'bass': Track('bass', BassGuitar(treble_decay=.1, drive=.3, sustain=14., polarization=.5,
                                         clank=.12, release=.035),
                       fx=[Compressor(threshold=-20, ratio=2.5, attack=.018, release=.1),
-                          Filter(kind='lowpass', cutoff=3200)], gain=0),
+                              Filter(kind='lowpass', cutoff=3200)], gain=-5),
         'rhythm-L': Track('rhythm-L', ElectricGuitar(drive=.68, tone=.46, fretting=True,
             pickup_position=.06, pickup_width=.04, pickup_q=.7, treble_decay=2., pick_noise=.12),
             fx=[Filter(kind='highpass', cutoff=100), EQ(low=-1.5, low_freq=160, high=-1., high_freq=6000),
-                Reverb(size=.24, damp=.65, mix=.045)], gain=-4.3, pan=-.78),
+                Reverb(size=.24, damp=.65, mix=.045)], gain=1., pan=-.78),
         'rhythm-R': Track('rhythm-R', ElectricGuitar(drive=.64, tone=.5, fretting=True,
             pickup_position=.065, pickup_width=.035, pickup_q=.75, pick_position=.17,
             treble_decay=1.8, pick_noise=.1),
             fx=[Filter(kind='highpass', cutoff=110), Reverb(size=.27, damp=.65, mix=.045)],
-            gain=-4.8, pan=.78),
+            gain=.5, pan=.78),
         'clean': Track('clean', ElectricGuitar(drive=.1, tone=.48, pickup='neck', pick_noise=.08),
                        fx=[Filter(kind='highpass', cutoff=140), Chorus(mix=.12, depth=.0015),
-                           Reverb(size=.4, damp=.6, mix=.14)], gain=-3.5, pan=-.34),
+                           Reverb(size=.4, damp=.6, mix=.14)], gain=2.5, pan=-.34),
         'acoustic': Track('acoustic', AcousticGuitar(model='modal', fretting=True, pick_position=.08,
             brightness=1., treble_decay=1.5, prompt_decay=.7, pick_noise=.3),
-            fx=[Filter(kind='highpass', cutoff=160), Reverb(size=.3, mix=.10)], gain=-5, pan=.4),
+            fx=[Filter(kind='highpass', cutoff=160), Reverb(size=.3, mix=.10)], gain=8, pan=.4),
         'lead': Track('lead', ElectricGuitar(drive=.62, tone=.55, pickup='neck', sustain=12.,
             treble_decay=3., polarization=.22, pick_noise=.09, fretting=True),
             fx=[Filter(kind='highpass', cutoff=220), Delay(time=.75, feedback=.23, mix=.16, tone=3300),
-                Reverb(size=.38, damp=.55, mix=.12)], gain=.5, pan=.06),
+                Reverb(size=.38, damp=.55, mix=.12)], gain=3.5, pan=.06),
         'piano': Track('piano', Piano(model='hammer_damped', release=.12),
-                       fx=[Filter(kind='highpass', cutoff=150), Reverb(size=.35, mix=.10)], gain=-1.5, pan=.18),
+                       fx=[Filter(kind='highpass', cutoff=150), Reverb(size=.35, mix=.10)], gain=22.5, pan=.18),
         'cello': Track('cello', Cello(pressure=.45, vibrato=.065, bow_noise=.018, release=.25),
                        fx=[Filter(kind='highpass', cutoff=100), Reverb(size=.4, mix=.12)], gain=-3, pan=-.18),
         'violin': Track('violin', Violin(pressure=.4, vibrato=.08, attack=.10, release=.22),
@@ -122,7 +122,7 @@ def build_song() -> Song:
             add('acoustic', t+(.025 if i % 2 else .015), pitch, .65, accent*.75, string=string)
     add('cello', 0, 52, 3.7, .56)
     add('cello', 4, 48, 3.35, .52, legato=True)
-    for t, p, v in ((6.5, 51, .38), (7., 47, .52), (7.5, 45, .64), (7.75, 38, .68)):
+    for t, p, v in ((6.5, 50, .38), (7., 47, .52), (7.5, 45, .64), (7.75, 38, .68)):
         drum('toms' if p != 38 else 'snare', t, p, v)
     for t in (0., 2., 4., 6.):
         drum('hats', t, 44, .32)
