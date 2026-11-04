@@ -311,7 +311,9 @@ def rock_song() -> Song:
             elif role in ('verse', 'verse2') and j % 4 == 3:
                 b.theme(bar, ((67, 1.), (66, .5), (64, 1.5), (62, 1.)), instrument='lead', energy=.62)
             elif role == 'bridge' and j % 2 == 1:
-                b.theme(bar, ((64, 1.), (67, .5), (69, .5), (71, 2.)), instrument='lead', energy=.72)
+                row = (((66, 1.), (69, .5), (71, .5), (75, 2.)) if chord == 'B7'
+                       else ((64, 1.), (67, .5), (69, .5), (71, 2.)))
+                b.theme(bar, row, instrument='lead', energy=.72)
     b.power(248, 'Em9', 2.2, .92)
     b.add('bass', 248, 28, 2.2, .86, slide=7., slide_time=.065)
     b.add('lead', 248, 76, 2.4, .85, string=1, vibrato=.08)
