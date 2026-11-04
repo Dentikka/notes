@@ -48,24 +48,25 @@ def build_song() -> Song:
         'bass': Track('bass', BassGuitar(treble_decay=.1, drive=.3, sustain=14., polarization=.5,
                                         clank=.12, release=.035),
                       fx=[Compressor(threshold=-20, ratio=2.5, attack=.018, release=.1),
-                              Filter(kind='lowpass', cutoff=3200)], gain=-5),
+                              Filter(kind='lowpass', cutoff=3200)], gain=-6.5),
         'rhythm-L': Track('rhythm-L', ElectricGuitar(drive=.68, tone=.46, fretting=True,
             pickup_position=.06, pickup_width=.04, pickup_q=.7, treble_decay=2., pick_noise=.12),
             fx=[Filter(kind='highpass', cutoff=100), EQ(low=-1.5, low_freq=160, high=-1., high_freq=6000),
-                Reverb(size=.24, damp=.65, mix=.045)], gain=1., pan=-.78),
+                Reverb(size=.24, damp=.65, mix=.045)], gain=2.5, pan=-.78),
         'rhythm-R': Track('rhythm-R', ElectricGuitar(drive=.64, tone=.5, fretting=True,
             pickup_position=.065, pickup_width=.035, pickup_q=.75, pick_position=.17,
             treble_decay=1.8, pick_noise=.1),
             fx=[Filter(kind='highpass', cutoff=110), Reverb(size=.27, damp=.65, mix=.045)],
-            gain=.5, pan=.78),
+            gain=2., pan=.78),
         'clean': Track('clean', ElectricGuitar(drive=.1, tone=.48, pickup='neck', pick_noise=.08),
                        fx=[Filter(kind='highpass', cutoff=140), Chorus(mix=.12, depth=.0015),
                            Reverb(size=.4, damp=.6, mix=.14)], gain=2.5, pan=-.34),
         'acoustic': Track('acoustic', AcousticGuitar(model='modal', fretting=True, pick_position=.08,
             brightness=1., treble_decay=1.5, prompt_decay=.7, pick_noise=.3),
             fx=[Filter(kind='highpass', cutoff=160), Reverb(size=.3, mix=.10)], gain=8, pan=.4),
-        'lead': Track('lead', ElectricGuitar(drive=.62, tone=.55, pickup='neck', sustain=12.,
-            treble_decay=3., polarization=.22, pick_noise=.09, fretting=True),
+        'lead': Track('lead', ElectricGuitar(drive=.66, tone=.5, pickup='bridge', sustain=12.,
+            pickup_position=.06, pickup_width=.03, pickup_q=.7, treble_decay=3.,
+            polarization=.22, pick_noise=.11, fretting=True),
             fx=[Filter(kind='highpass', cutoff=220), Delay(time=.75, feedback=.23, mix=.16, tone=3300),
                 Reverb(size=.38, damp=.55, mix=.12)], gain=3.5, pan=.06),
         'piano': Track('piano', Piano(model='hammer_damped', release=.12),
@@ -253,7 +254,7 @@ def build_song() -> Song:
     for i in range(8):
         drum('hats', 56+i*.5, 42, .62 if i % 2 == 0 else .37)
     power(60., 'Em', 1.25, .94)
-    add('bass', 60., 28, 1.25, .88)
+    add('bass', 60., 28, 1.25, .88, slide=7., slide_time=.065)
     add('lead', 60., 76, 1.4, .85, string=1, vibrato=.08, vibrato_delay=.12)
     add('piano', 60.04, 64, 1.2, .61)
     add('piano', 60.08, 71, 1.15, .5)
