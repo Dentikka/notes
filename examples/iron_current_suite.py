@@ -87,10 +87,13 @@ class Band:
             self.tracks['acoustic'] = replace(_TRACKS['acoustic'], gain=4.)
             self.tracks['bass'] = replace(_TRACKS['bass'], gain=-10.)
             self.tracks['piano'] = replace(_TRACKS['piano'], gain=21.)
+            self.tracks['piano-low'] = replace(self.tracks['piano'], name='piano-low', gain=9.)
         self.events = {name: [] for name in self.tracks}
         self.sections = []
 
     def add(self, name, beat, pitch, dur, vel, **params):
+        if self.style == 'soft' and name == 'piano' and pitch < 57:
+            name = 'piano-low'
         at, duration = Fraction(str(beat)), Fraction(str(dur))
         if at < 0 or at >= self.bars*4:
             return
@@ -226,8 +229,9 @@ class Band:
         duration = self.bars*4
         layers = [self.tracks[name](place(events, length=duration)) for name, events in self.events.items() if events]
         markers = place(self.sections, length=duration)
+        target = -18. if self.style == 'soft' else (-17. if self.style == 'suite' else -16.)
         return Song(stack(*layers, markers), bpm=self.bpm, seed=83, sample_rate=44100,
-                    loudness=-16., ceiling=-1., key=key, title=self.title)
+                    loudness=target, ceiling=-1., key=key, title=self.title)
 
 
 def clean_song() -> Song:
@@ -437,7 +441,7 @@ def extended_song() -> Song:
         b.drums(bar, .84-.035*j, variation=j, fill=j == 5)
         if j >= 2:
             b.texture(bar, chord, .50, variation=j)
-            b.theme(bar, CLEAN_THEME[(j-2) % 8], energy=.62)
+            b.theme(bar, CLEAN_THEME[(2, 3, 1, 7)[j-2]], energy=.62)
     b.power(312, 'Em9', 2.2, .92)
     b.add('bass', 312, 28, 2.2, .86, slide=7., slide_time=.065)
     b.add('lead', 312, 76, 2.4, .84, string=1, vibrato=.08)
