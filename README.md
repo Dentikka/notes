@@ -519,6 +519,11 @@ linearly and hold before/after the endpoints, including release. The audio rende
 applies this to every instrument before its inserts and amp, independently of
 velocity and pitch. It controls expression gain, not bow pressure or excitation
 brightness. Omitting it preserves old renders; MIDI export does not emit this curve.
+`notes.ears.infer_expression_points(reference_profile, candidate_profile)` estimates
+ten coarse gain points from RMS envelopes for a known-note reconstruction. It keeps
+the original onset clock, normalizes overall gain and returns only scalar controls.
+For short notes, pass a shorter `times=(0, ..., end)` schedule. This fits performance
+amplitude, not timbre or a general instrument preset.
 
 `ElectricGuitar(pickup_position=.06, pickup_width=.04)` opts into a spatial
 magnetic pickup with fractional delays and a finite uniform sensing aperture.

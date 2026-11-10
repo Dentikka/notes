@@ -68,3 +68,37 @@ def test_constant_expression_matches_excitation_level_before_distortion():
 def test_invalid_expression_points_are_rejected(points):
     with pytest.raises(ValueError, match='expression_points'):
         render_score(score(points=points))
+
+
+def test_inferred_expression_recovers_known_swell_independently_of_recorded_gain():
+    from notes.ears import infer_expression_points
+    from notes.ears.note_profile import profile_note
+
+    sr = 16000
+    time = np.arange(sr*3)/sr
+    source = np.sin(2*np.pi*220*time)*(1-np.exp(-time/.005))
+    times = (0., .1, .2, .4, .8, 1.5, 2.8)
+    points = tuple(zip(times, (0., .15, .3, .6, 1., .6, .25), strict=True))
+    expected = expression_curve({'expression_points': points}, len(source), sr)
+    base = profile_note(source, sr, 220)
+    reference = profile_note(source*expected*.13, sr, 220)
+    fitted = infer_expression_points(reference, base, times=times)
+    np.testing.assert_allclose(np.array(fitted)[2:, 1], np.array(points)[2:, 1], atol=.02)
+    louder = infer_expression_points(profile_note(source*expected*.65, sr, 220), base, times=times)
+    np.testing.assert_allclose(fitted, louder, atol=1e-8)
+    # Compare the full trajectory, not just the control points used by the fit.
+    actual = expression_curve({'expression_points': fitted}, len(source), sr)
+    assert np.mean(abs(actual[sr//5:]-expected[sr//5:])) < .015
+
+
+@pytest.mark.parametrize('options', [{'times': ()}, {'times': (0., .1)}, {'times': (.1, .5, 1.)},
+                                     {'times': (0., .5, .5)}, {'times': (0., .5, 4.)},
+                                     {'gain_floor': 0.}, {'gain_floor': np.nan}])
+def test_expression_inference_rejects_invalid_knots_and_gain_floor(options):
+    from notes.ears import infer_expression_points
+    from notes.ears.note_profile import profile_note
+
+    time = np.arange(48000)/16000
+    profile = profile_note(np.sin(2*np.pi*220*time), 16000, 220)
+    with pytest.raises(ValueError, match='expression'):
+        infer_expression_points(profile, profile, **options)
