@@ -100,3 +100,62 @@ def test_set_audit_catches_regression_hidden_by_better_average():
         audit_profile_set(references, old, {"improved":ref})
     with pytest.raises(ValueError):
         audit_profile_set(references, old, old, regression_tolerance=float("nan"))
+
+
+def test_partial_decays_recover_independent_losses_and_ignore_gain_and_silence():
+    from notes.ears.note_profile import partial_decays
+
+    time = np.arange(SR*2)/SR
+    wave = (np.sin(2*np.pi*220*time)*np.exp(-time/.8)
+            + .5*np.sin(2*np.pi*440*time)*np.exp(-time/.3))
+    expected = np.log(1000)*np.array([.8, .3])
+    for audio in (wave, np.pad(wave*.1, (SR//4, 0))):
+        decay = partial_decays(profile_note(audio, SR, 220), start=.2, end=.6)
+        np.testing.assert_allclose([p.t60_seconds for p in decay[:2]], expected, rtol=.02)
+        assert all(p.reliable for p in decay[:2])
+        assert not decay[-1].reliable
+
+
+def test_decay_windows_expose_modulation_growth_and_changing_loss():
+    from notes.ears.note_profile import partial_decays
+
+    time = np.arange(SR*2)/SR
+    carrier = np.sin(2*np.pi*220*time)
+    # Growth and audible beating must not be reported as reliable exponential decay.
+    for envelope in (np.exp(time), np.exp(-time)*(1+.8*np.sin(2*np.pi*5*time))):
+        measured = partial_decays(profile_note(carrier*envelope, SR, 220), start=.2, end=1.2)[0]
+        assert not measured.reliable and measured.t60_seconds is None
+    envelope = np.exp(-np.minimum(time,.8)/.8-np.maximum(time-.8,0)/.2)
+    profile = profile_note(carrier*envelope, SR, 220)
+    early = partial_decays(profile, start=.2, end=.6)[0]
+    late = partial_decays(profile, start=1., end=1.4)[0]
+    assert early.reliable and late.reliable
+    assert late.decay_db_per_second/early.decay_db_per_second == pytest.approx(4., rel=.02)
+
+
+@pytest.mark.parametrize("options", [{"start":-.1}, {"end":3.}, {"end":.2}, {"end":.21},
+                                     {"audibility_db":float("nan")}, {"residual_limit_db":0}])
+def test_invalid_decay_window_and_thresholds_are_rejected(options):
+    from notes.ears.note_profile import partial_decays
+
+    with pytest.raises(ValueError):
+        partial_decays(profile_note(tone(), SR, 220), **options)
+
+
+def test_cli_reports_multiple_decay_windows_and_preserves_old_metrics(tmp_path):
+    import json
+
+    from notes.cli import main
+    from notes.engine.audio import write_wav
+
+    reference, candidate = tmp_path/"ref.wav", tmp_path/"candidate.wav"
+    write_wav(reference, tone(tau=.8)*.2, SR)
+    write_wav(candidate, tone(tau=.3)*.2, SR)
+    output = tmp_path/"decays.json"
+    assert main(["audit-note", str(reference), str(candidate), "--pitch", "A3", "-o", str(output),
+                 "--decay-window", ".2", ".6", "--decay-window", "1", "1.4"]) == 0
+    report = json.loads(output.read_text())
+    assert report["profile_metric_version"] == 2 and report["status"] == "diagnostic-only"
+    assert len(report["decay_windows"]) == 2
+    for window in report["decay_windows"]:
+        assert window["reference"][0]["t60_seconds"] > window["render"][0]["t60_seconds"]

@@ -25,6 +25,60 @@ class NoteProfile:
     band_db: np.ndarray
 
 
+@dataclass(frozen=True)
+class PartialDecay:
+    """Local exponential-decay estimate, not a measured physical mode or realism score."""
+
+    harmonic: int
+    frequency_hz: float
+    decay_db_per_second: float
+    t60_seconds: float | None
+    residual_rms_db: float
+    audible_fraction: float
+    reliable: bool
+
+
+def partial_decays(
+    profile: NoteProfile,
+    *,
+    start: float = 0.2,
+    end: float = 0.6,
+    audibility_db: float = 40.0,
+    residual_limit_db: float = 1.0,
+    minimum_drop_db: float = 0.25,
+) -> tuple[PartialDecay, ...]:
+    """Fit each partial's dB slope in one explicit, onset-relative time window.
+
+    A reliable estimate must remain audible throughout the window, decay by at
+    least ``minimum_drop_db``, and have small deviations from an exponential.
+    Growing, weak and modulated components remain in the report but have no T60.
+    T60 is a local extrapolation: compare disjoint windows to reveal changing
+    losses or beating rather than treating one slope as a whole-note lifetime.
+    """
+    if (not np.isfinite(start) or not np.isfinite(end) or start < 0 or end <= start
+            or end > profile.time[-1]):
+        raise ValueError("decay window must lie inside the note profile")
+    if any(not np.isfinite(v) or v <= 0 for v in (audibility_db, residual_limit_db, minimum_drop_db)):
+        raise ValueError("decay thresholds must be finite and positive")
+    keep = (profile.time >= start) & (profile.time <= end)
+    time = profile.time[keep]
+    if len(time) < 4:
+        raise ValueError("decay window needs at least four profile frames")
+    values = profile.partial_db[keep]
+    centered = time-time.mean()
+    slopes = centered @ values / float(centered @ centered)
+    residual = np.sqrt(np.mean((values-values.mean(axis=0)-centered[:, None]*slopes)**2, axis=0))
+    audible = np.mean(values > float(profile.partial_db.max())-audibility_db, axis=0)
+    result = []
+    for h, hz in enumerate(profile.partial_hz):
+        decay = float(-slopes[h])
+        reliable = bool(audible[h] == 1.0 and residual[h] <= residual_limit_db
+                        and decay*(time[-1]-time[0]) >= minimum_drop_db)
+        result.append(PartialDecay(h+1, float(hz), decay, 60/decay if reliable else None,
+                                   float(residual[h]), float(audible[h]), reliable))
+    return tuple(result)
+
+
 def profile_note(audio: np.ndarray, sr: int, f0: float, *, harmonics: int = 20) -> NoteProfile:
     """Measure an isolated note around known f0, retaining its harmonic envelope.
 

@@ -5,7 +5,7 @@ from scipy.linalg import eigvalsh, expm, solve
 
 from notes import ModalString, Note, Song, Track
 from notes.engine import RenderContext, Voice, build_instrument
-from notes.engine.mechanical_string import _initial_state, _output, _tuned_state, modal_string
+from notes.engine.mechanical_string import _initial_state, _mechanics, _output, _tuned_state, modal_string
 
 
 def test_mechanical_energy_and_independent_matrix_exponential():
@@ -36,6 +36,15 @@ def test_release_motion_redistributes_energy_without_increasing_it():
     moving = _initial_state(model, .15, None, 1.)
     assert not moving[:len(model['omega'])].any()
     np.testing.assert_array_equal(moving, -_initial_state(model, .15, None, -1.))
+
+
+def test_bridge_q_and_mobility_can_change_loss_at_fixed_mass_and_stiffness():
+    before = _mechanics(110., modes=12, body_q=20., peak=.02)
+    after = _mechanics(110., modes=12, body_q=60., peak=.06)
+    np.testing.assert_allclose(before[0], after[0], rtol=1e-14)
+    np.testing.assert_allclose(before[1], after[1], rtol=1e-14)
+    np.testing.assert_allclose(before[2][:-1, :-1], after[2][:-1, :-1], rtol=1e-14)
+    assert after[2][-1,-1] == pytest.approx(before[2][-1,-1]/3)
 
 
 def test_duration_cannot_change_the_earlier_excitation():

@@ -231,8 +231,10 @@ def _compare(args: argparse.Namespace) -> int:
 
 
 def _audit_note(args: argparse.Namespace) -> int:
+    from dataclasses import asdict
+
     from notes.ears.compare import load
-    from notes.ears.note_profile import compare_profiles, profile_note
+    from notes.ears.note_profile import compare_profiles, partial_decays, profile_note
     from notes.lang.theory import midi_to_hz, parse_pitch
 
     reference, render, output = (Path(p).resolve() for p in (args.reference, args.render, args.out))
@@ -246,6 +248,13 @@ def _audit_note(args: argparse.Namespace) -> int:
               "reference": str(reference), "render": str(render), "expected_f0": expected,
               "reference_f0": profiles[0].f0, "render_f0": profiles[1].f0,
               "git_revision": _git_revision(), **compare_profiles(*profiles)}
+    if args.decay_window:
+        report["decay_windows"] = [
+            {"start": start, "end": end, "scope": "local exponential estimates, not whole-note lifetimes",
+             **{name: [asdict(p) for p in partial_decays(profile, start=start, end=end)]
+                for name, profile in zip(("reference", "render"), profiles, strict=True)}}
+            for start, end in args.decay_window
+        ]
     output.parent.mkdir(parents=True, exist_ok=True)
     _write_json(output, report)
     print(json.dumps(report, indent=2))
@@ -488,6 +497,8 @@ def main(argv: list[str] | None = None) -> int:
     audit.add_argument("--pitch", required=True, help="known note name, e.g. A2")
     audit.add_argument("--a4", type=float, default=440)
     audit.add_argument("--harmonics", type=int, default=20)
+    audit.add_argument("--decay-window", type=float, nargs=2, action="append", metavar=("START", "END"),
+                       help="optional onset-relative decay window in seconds; repeat to compare attack and sustain")
     audit.add_argument("-o", "--out", required=True, help="JSON diagnostic report")
     audit.set_defaults(func=_audit_note)
     trans = sub.add_parser("transcribe", help="extract notes from an isolated stem and render a reconstruction")
