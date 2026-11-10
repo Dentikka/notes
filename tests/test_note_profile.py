@@ -133,8 +133,20 @@ def test_decay_windows_expose_modulation_growth_and_changing_loss():
     assert late.decay_db_per_second/early.decay_db_per_second == pytest.approx(4., rel=.02)
 
 
+def test_small_absolute_residual_cannot_certify_a_modulated_slow_decay():
+    from notes.ears.note_profile import partial_decays
+
+    time = np.arange(SR*2)/SR
+    wave = np.sin(2*np.pi*220*time)*np.exp(-time*.2)*(1+.15*np.sin(2*np.pi*4*time))
+    measured = partial_decays(profile_note(wave, SR, 220), start=.2, end=1.2)[0]
+    assert measured.residual_rms_db < 1. and measured.decay_db_per_second > 1.
+    assert measured.r_squared < .5
+    assert not measured.reliable and measured.t60_seconds is None
+
+
 @pytest.mark.parametrize("options", [{"start":-.1}, {"end":3.}, {"end":.2}, {"end":.21},
-                                     {"audibility_db":float("nan")}, {"residual_limit_db":0}])
+                                     {"audibility_db":float("nan")}, {"residual_limit_db":0},
+                                     {"minimum_r_squared":float("nan")}, {"minimum_r_squared":1.1}])
 def test_invalid_decay_window_and_thresholds_are_rejected(options):
     from notes.ears.note_profile import partial_decays
 
