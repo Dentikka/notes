@@ -188,6 +188,56 @@ def profile_note(audio: np.ndarray, sr: int, f0: float, *, harmonics: int = 20) 
                        np.array(locations), max(0, t90-t10)/sr, bands)
 
 
+def harmonic_shape_distance(
+    reference: NoteProfile,
+    candidate: NoteProfile,
+    *,
+    start: float = 0.15,
+    end: float | None = None,
+    step: float = 0.02,
+    audibility_db: float = 45.0,
+    floor_db: float = 60.0,
+) -> float:
+    """Mean partial-ratio difference in dB, independent of each frame's gain.
+
+    Both profiles are sampled on a shared onset-relative clock. Each frame's
+    partial energies are normalized to their sum; the union of audible cells
+    retains added as well as missing harmonics. Only shared harmonic indices
+    are compared. This deliberately removes expression/decay of overall level,
+    not changes in relative partial decay. It measures neither pitch, phase,
+    nonharmonic noise, nor perceptual realism; check those separately.
+
+    Useful for isolating timbre from expression or comparing renders under
+    numerical refinement. A small distance alone does not prove convergence.
+    """
+    shared_end = min(reference.time[-1], candidate.time[-1])
+    end = min(shared_end, 2.0) if end is None else end
+    if (not np.isfinite(start) or not np.isfinite(end) or not np.isfinite(step)
+            or start < 0 or end <= start or end > shared_end or step <= 0):
+        raise ValueError("shape window and step must be finite and lie inside both profiles")
+    if (not np.isfinite(audibility_db) or not np.isfinite(floor_db)
+            or not 0 < audibility_db <= floor_db):
+        raise ValueError("shape thresholds must satisfy 0 < audibility_db <= floor_db")
+    times = np.arange(start, end, step)
+    count = min(reference.partial_db.shape[1], candidate.partial_db.shape[1])
+    if len(times) < 3 or count < 2:
+        raise ValueError("shape window needs at least three frames and two shared partials")
+
+    def normalized(profile: NoteProfile) -> np.ndarray:
+        values = np.array([np.interp(times, profile.time, profile.partial_db[:, h])
+                           for h in range(count)]).T
+        # Removing the row maximum first avoids overflow for large common gains.
+        values -= values.max(axis=1, keepdims=True)
+        return values-10*np.log10(np.sum(10**(values/10), axis=1, keepdims=True))
+
+    ref, est = normalized(reference), normalized(candidate)
+    keep = (ref > -audibility_db) | (est > -audibility_db)
+    if not keep.any():
+        raise ValueError("shape thresholds leave no audible partials")
+    error = abs(np.maximum(ref, -floor_db)-np.maximum(est, -floor_db))
+    return float(error[keep].mean())
+
+
 def compare_profiles(reference: NoteProfile, candidate: NoteProfile) -> dict[str, float | int]:
     """Gain-invariant harmonic-envelope errors, pitch and attack; no acceptance label."""
     end = min(reference.time[-1], candidate.time[-1], 2.0)

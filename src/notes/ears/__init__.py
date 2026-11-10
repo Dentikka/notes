@@ -7,7 +7,7 @@ from notes.ears.compare import ANALYSIS_RATE, Comparison, compare, format_compar
 from notes.ears.fit import FitResult, fit_loss, fit_reference
 from notes.ears.inharmonicity import InharmonicPartial, StringInharmonicity, string_inharmonicity
 from notes.ears.mert import MertEar
-from notes.ears.note_profile import PartialDecay, infer_expression_points, partial_decays
+from notes.ears.note_profile import PartialDecay, harmonic_shape_distance, infer_expression_points, partial_decays
 from notes.ears.polyphonic import TemplateTrack, notes_from_templates, template_track
 from notes.ears.transcribe import tracked_music
 from notes.ears.tuning import KnownNoteTuning, known_note_tuning
@@ -39,6 +39,7 @@ __all__ = [
     "format_report",
     "listening",
     "infer_expression_points",
+    "harmonic_shape_distance",
     "known_note_tuning",
     "load",
     "notes_from_templates",

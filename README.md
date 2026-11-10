@@ -340,6 +340,14 @@ attack errors while removing an overall gain difference. It requires an isolated
 note with a known pitch and never produces a realism/approval label. Reference
 recordings remain outside the synthesizer and the repository.
 
+`notes.ears.harmonic_shape_distance(reference_profile, candidate_profile,
+start=.4, end=1.8)` compares relative partial energies after removing each frame's
+overall gain. Unlike the full profile loss, it separates harmonic shape from
+crescendos and overall decay. The onset-relative window, audible union and
+floor are explicit; added harmonics are included. Use it alongside envelope,
+pitch and broadband measurements: it excludes phase/nonharmonic noise and does
+not certify realism or numerical convergence by itself.
+
 `notes.ears.known_note_tuning(audio, sr, expected_hz)` refines mean tuning of a
 stable isolated note with a known nominal pitch. It fits demodulated phase in an
 explicit window and checks agreement of detected harmonics. Check `reliable`
