@@ -504,6 +504,9 @@ vibrating string; it is not scaled again by fret geometry. Values must be finite
 and nonnegative. Omitting it preserves the instrument's existing global B.
 This lets known-note inharmonicity measurements reach individual notes without
 creating a separate track for every stiffness value; it does not establish realism.
+For measured-B calibration, select `dispersion_fit="bracketed"` explicitly: the
+legacy search can disable dispersion and make different requested B values yield
+the same waveform. Both modes retain the existing approximate two-allpass model.
 
 For amplified guitars, instrument `level` is an excitation gain before the amp;
 changing it changes saturation even after loudness matching. Use `Track.gain` or
