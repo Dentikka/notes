@@ -34,6 +34,7 @@ class PartialDecay:
     decay_db_per_second: float
     t60_seconds: float | None
     residual_rms_db: float
+    r_squared: float
     audible_fraction: float
     reliable: bool
 
@@ -46,11 +47,13 @@ def partial_decays(
     audibility_db: float = 40.0,
     residual_limit_db: float = 1.0,
     minimum_drop_db: float = 0.25,
+    minimum_r_squared: float = 0.8,
 ) -> tuple[PartialDecay, ...]:
     """Fit each partial's dB slope in one explicit, onset-relative time window.
 
     A reliable estimate must remain audible throughout the window, decay by at
-    least ``minimum_drop_db``, and have small deviations from an exponential.
+    least ``minimum_drop_db``, have small deviations from an exponential and a
+    trend that explains at least ``minimum_r_squared`` of its dB variance.
     Growing, weak and modulated components remain in the report but have no T60.
     T60 is a local extrapolation: compare disjoint windows to reveal changing
     losses or beating rather than treating one slope as a whole-note lifetime.
@@ -60,6 +63,8 @@ def partial_decays(
         raise ValueError("decay window must lie inside the note profile")
     if any(not np.isfinite(v) or v <= 0 for v in (audibility_db, residual_limit_db, minimum_drop_db)):
         raise ValueError("decay thresholds must be finite and positive")
+    if not np.isfinite(minimum_r_squared) or not 0 <= minimum_r_squared <= 1:
+        raise ValueError("minimum_r_squared must be between 0 and 1")
     keep = (profile.time >= start) & (profile.time <= end)
     time = profile.time[keep]
     if len(time) < 4:
@@ -68,14 +73,18 @@ def partial_decays(
     centered = time-time.mean()
     slopes = centered @ values / float(centered @ centered)
     residual = np.sqrt(np.mean((values-values.mean(axis=0)-centered[:, None]*slopes)**2, axis=0))
+    variance = np.var(values, axis=0)
+    explained = 1-np.divide(residual**2, variance, out=np.ones_like(variance), where=variance > 1e-20)
+    explained = np.clip(explained, 0., 1.)
     audible = np.mean(values > float(profile.partial_db.max())-audibility_db, axis=0)
     result = []
     for h, hz in enumerate(profile.partial_hz):
         decay = float(-slopes[h])
         reliable = bool(audible[h] == 1.0 and residual[h] <= residual_limit_db
+                        and explained[h] >= minimum_r_squared
                         and decay*(time[-1]-time[0]) >= minimum_drop_db)
         result.append(PartialDecay(h+1, float(hz), decay, 60/decay if reliable else None,
-                                   float(residual[h]), float(audible[h]), reliable))
+                                   float(residual[h]), float(explained[h]), float(audible[h]), reliable))
     return tuple(result)
 
 
