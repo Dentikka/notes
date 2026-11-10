@@ -566,7 +566,10 @@ retain their behavior.
   `build_song(calibrated_decay=True)` in that example enables an optional shared
   loss calibration from early (0.2–0.6 s) partial decays of three other A2 takes.
   Bridge Q and mobility change together to preserve the bridge's mass/stiffness.
-  This is a conditional, single-register experiment, not the default guitar.
+  The source's input gains are separately matched to the DI attack before the
+  shared amp/cabinet chain. On eight other notes/strokes, spectral loss improves
+  for 7/8 but MERT improves for only 4/8. This remains a conditional experiment,
+  not the default guitar or a demonstrated solution across registers.
 
   `notes audit-note reference.wav candidate.wav --pitch A2 -o audit.json
   --decay-window 0.2 0.6 --decay-window 1 2` also reports each partial's decay rate,

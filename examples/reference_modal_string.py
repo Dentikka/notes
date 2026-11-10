@@ -38,11 +38,13 @@ def build_song(*, baseline: bool = False, amplified: bool = True, calibrated_dec
     parts = []
     cases = (
         (109.93146876656337, .7, .01692447936581963, .5, .15, .9, -4.528077027402601,
-         .2, .3, -7.422744206429046),
+         .2, .3, -7.422744206429046, -4.7197721441003155),
         (108.86907025804253, .35, .013798072972829138, -1., .2, .9, 10.64611788000134,
-         .15, .1, 5.478269486850724),
+         .15, .1, 5.478269486850724, 10.392690463994278),
     )
-    for hz, vel, mobility, motion, pick, hardness, gain, old_pick, old_hardness, old_gain in cases:
+    for hz, vel, mobility, motion, pick, hardness, gain, old_pick, old_hardness, old_gain, decay_gain in cases:
+        if calibrated_decay:
+            gain = decay_gain  # DI attack level, frozen before comparing the processed recording.
         params = {"string": 5, "pick_position": old_pick if baseline else pick,
                   "pick_hardness": old_hardness if baseline else hardness,
                   "source_gain_db": old_gain if baseline else gain,
