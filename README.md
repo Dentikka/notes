@@ -540,3 +540,25 @@ On A2, the correction improves MERT for the recorded-DI analysis chain
 measured tuning anchors. The synthetic source/amp interaction remains unresolved;
 this is not a universal rock-guitar preset.
 Source: [FreePats FSBS distorted electric guitar](https://freepats.zenvoid.org/ElectricGuitar/distorted-electric-guitar.html).
+
+`ModalString()` is an experimental direct electromagnetic string source. A finite
+mass/stiffness/damping system includes a moving bridge and exact non-proportional
+damping. It uses no recorded excitation, measured IR, reference phases or wavetable.
+`release_motion=-1..1` assigns a signed fraction of initial mechanical energy to
+velocity instead of displacement, preserving total initial energy. Its default 0
+releases a held pluck; +/-1 begins at zero deflection with opposite velocities.
+Velocity scales energy independently. `pluck_force` sets the model's effective
+pull; `level` converts mechanical velocity to DSP amplitude.
+
+Per-note `release_motion`, `bridge_scale=0..1`, `pick_position`, `pick_hardness`
+and effective `stiffness` control individual strokes. `fretting=True` uses guitar
+string/fret geometry. `modes=8..128` bounds the basis; only modes in the audio band
+are emitted. The source currently supports steady pitches, including constant
+pitch offsets; changing bends, slides and vibrato raise an explicit error.
+
+`examples/reference_modal_string.py` reconstructs two additional A2 performances
+with separately inferred stroke and input-level controls. The distorted-note MERT
+diagnostic improves on both, but the ordinary take's spectral profile regresses
+against the separately fitted waveguide. Validation is narrow and does not establish
+realism across registers or a universal guitar preset. The original instruments
+retain their behavior.
