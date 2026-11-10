@@ -100,6 +100,15 @@ def _string(v: Voice, n: int, sr: int, render_at_fixed_pitch) -> np.ndarray:
         render_at_fixed_pitch, curve, interpolation=v.params.get("pitch_interpolation", "linear"))
 
 
+def _note_stiffness(v: Voice, fallback: float) -> float:
+    if "stiffness" not in v.params:
+        return fallback
+    value = float(v.params["stiffness"])
+    if not np.isfinite(value) or value < 0:
+        raise ValueError("per-note stiffness must be finite and nonnegative")
+    return value
+
+
 @register_instrument("pluck")
 @dataclass(frozen=True, kw_only=True)
 class Pluck(Instrument):
@@ -169,6 +178,8 @@ class ElectricGuitar(Instrument):
 
     Per-note ``pick_position`` and ``pick_hardness`` override the constructor
     controls before fret geometry and mute/legato/velocity modifiers.
+    Per-note ``stiffness`` overrides the dispersion B directly for the vibrating
+    length; it is not additionally scaled by the fret geometry.
     ``dispersion_fit="bracketed"`` avoids silently disabling stiffness when a
     trial resonance lies outside the old narrow search. Default "legacy" retains
     the original waveform; both use the same two-allpass dispersion model.
@@ -247,6 +258,7 @@ class ElectricGuitar(Instrument):
 
     def voice(self, v: Voice, ctx: RenderContext, rng: np.random.Generator) -> np.ndarray:
         sr = ctx.sr
+        stiffness = _note_stiffness(v, self.stiffness)
         muted = bool(v.params.get("palm_mute", False))
         legato = bool(v.params.get("legato", False))
         t60 = self.mute_decay if muted else _t60(self.sustain, v.freq)
@@ -274,7 +286,7 @@ class ElectricGuitar(Instrument):
         def string(m: int) -> np.ndarray:
             prompt = self.prompt_decay * t60 if self.prompt_decay > 0 and not muted else None
             y = steel_string(v.freq, m, sr, rng, t60=t60, t60_high=t60_high, pick=pick,
-                             hardness=hardness, stiffness=self.stiffness, second=self.polarization,
+                             hardness=hardness, stiffness=stiffness, second=self.polarization,
                              dispersion_fit=self.dispersion_fit,
                              prompt_t60=prompt)
             if spatial:
@@ -316,6 +328,7 @@ class BassGuitar(Instrument):
     and the clank of a pluck.
     ``dispersion_fit="bracketed"`` opts into the corrected stiffness search;
     "legacy" preserves the original waveform.
+    Per-note ``stiffness`` overrides B for this note's vibrating string length.
     """
 
     program: int | None = 33
@@ -355,6 +368,7 @@ class BassGuitar(Instrument):
 
     def voice(self, v: Voice, ctx: RenderContext, rng: np.random.Generator) -> np.ndarray:
         sr = ctx.sr
+        stiffness = _note_stiffness(v, self.stiffness)
         muted = bool(v.params.get("palm_mute", False))
         legato = bool(v.params.get("legato", False))
         t60 = 0.4 if muted else _t60(self.sustain, v.freq)
@@ -364,7 +378,7 @@ class BassGuitar(Instrument):
         def string(m: int) -> np.ndarray:
             y = steel_string(v.freq, m, sr, rng, t60=t60, t60_high=min(self.treble_decay, t60),
                              pick=self.pick_position, hardness=self.brightness * (0.7 if muted else 1.0),
-                             noise=0.05, stiffness=self.stiffness, second=self.polarization,
+                             noise=0.05, stiffness=stiffness, second=self.polarization,
                              dispersion_fit=self.dispersion_fit)
             return (y - delay(y, lag)) / (2.0 * np.sin(np.pi * position)) if lag >= 1 else y
 
