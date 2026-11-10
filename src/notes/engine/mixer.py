@@ -88,6 +88,12 @@ def _render_voices(
             params=dict(e.params),
         )
         wave = instrument.voice(voice, ctx, rng)
+        if 'source_gain_db' in voice.params:
+            source_gain_db = float(voice.params['source_gain_db'])
+            if not np.isfinite(source_gain_db) or not -120 <= source_gain_db <= 120:
+                raise ValueError('source_gain_db must be finite and between -120 and 120 dB')
+            if source_gain_db:
+                wave = wave*db_to_gain(source_gain_db)
         if i in cuts:
             keep = ctx.samples(tempo.seconds(cuts[i]) - start_s)
             if keep < len(wave):
