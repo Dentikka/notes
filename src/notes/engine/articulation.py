@@ -25,10 +25,30 @@ from typing import Any
 
 import numpy as np
 
-__all__ = ["pitch_curve", "variable_rate_read"]
+__all__ = ["expression_curve", "pitch_curve", "variable_rate_read"]
 
 _VIBRATO_FADE_S = 0.3
 _RATE_WANDER = 0.08
+
+
+def expression_curve(params: Mapping[str, Any], n: int, sr: int) -> np.ndarray | None:
+    """Optional audio gain curve: (seconds from onset, linear gain in [0, 1]).
+
+    Values interpolate linearly and hold outside the point range, including the
+    note's release. This is expression gain before inserts, not a change in the
+    instrument's excitation velocity or bow pressure. None preserves old renders.
+    """
+    points = params.get("expression_points")
+    if points is None:
+        return None
+    if n < 0 or sr <= 0:
+        raise ValueError("expression needs a nonnegative sample count and positive rate")
+    points = np.asarray(points, dtype=float)
+    if (points.ndim != 2 or points.shape[1] != 2 or len(points) < 1
+            or not np.isfinite(points).all() or points[0, 0] < 0 or np.any(np.diff(points[:, 0]) <= 0)
+            or np.any(points[:, 1] < 0) or np.any(points[:, 1] > 1)):
+        raise ValueError("expression_points need increasing nonnegative seconds and finite gains from 0 to 1")
+    return np.interp(np.arange(n)/sr, points[:, 0], points[:, 1])
 
 
 def _smoothstep(x: np.ndarray) -> np.ndarray:

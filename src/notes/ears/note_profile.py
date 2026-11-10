@@ -5,7 +5,7 @@ Pitch is supplied explicitly, preventing octave/harmonic mistakes from being hid
 """
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -23,6 +23,38 @@ class NoteProfile:
     partial_hz: np.ndarray
     attack_seconds: float
     band_db: np.ndarray
+
+
+def infer_expression_points(
+    reference: NoteProfile,
+    candidate: NoteProfile,
+    *,
+    times: Sequence[float] = (0., .08, .16, .3, .5, .8, 1.2, 1.8, 2.4, 2.8),
+    gain_floor: float = .02,
+) -> tuple[tuple[float, float], ...]:
+    """Infer coarse expression gains for one known-note reconstruction.
+
+    Uses RMS envelopes on the original clip clock, including their onset offsets.
+    The first two knots do not set the overall gain scale, avoiding amplification
+    from near-silent attack samples. The first gain is zero; remaining gains are
+    bounded by ``gain_floor`` and 1. This amplitude-only conditional fit does not
+    identify velocity, bow pressure, timbre, or a transferable instrument preset.
+    No reference waveform or phase is needed by the resulting synthesizer.
+    """
+    knots = np.asarray(times, dtype=float)
+    if (knots.ndim != 1 or len(knots) < 3 or not np.isfinite(knots).all()
+            or knots[0] != 0 or np.any(np.diff(knots) <= 0)
+            or knots[-1] > min(reference.time[-1]+reference.onset, candidate.time[-1]+candidate.onset)):
+        raise ValueError("expression times must start at zero, increase, and fit both note profiles")
+    if not np.isfinite(gain_floor) or not 0 < gain_floor <= 1:
+        raise ValueError("expression gain_floor must be from 0 to 1, excluding zero")
+    ref = np.interp(knots, reference.time+reference.onset, reference.rms_db)
+    source = np.interp(knots, candidate.time+candidate.onset, candidate.rms_db)
+    db = ref-source
+    db -= np.max(db[2:])
+    gains = 10**(np.clip(db, 20*np.log10(gain_floor), 0)/20)
+    gains[0] = 0.
+    return tuple((float(t), float(g)) for t, g in zip(knots, gains, strict=True))
 
 
 @dataclass(frozen=True)

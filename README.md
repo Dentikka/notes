@@ -512,6 +512,19 @@ For amplified guitars, instrument `level` is an excitation gain before the amp;
 changing it changes saturation even after loudness matching. Use `Track.gain` or
 master loudness for output-volume changes that preserve the amp operating point.
 
+For crescendo/diminuendo inside a held note, use
+`Note("A3", dur=4).param(expression_points=((0, .2), (.6, 1), (2.5, .35)))`.
+Points are seconds from onset and linear gains from 0 to 1; values interpolate
+linearly and hold before/after the endpoints, including release. The audio renderer
+applies this to every instrument before its inserts and amp, independently of
+velocity and pitch. It controls expression gain, not bow pressure or excitation
+brightness. Omitting it preserves old renders; MIDI export does not emit this curve.
+`notes.ears.infer_expression_points(reference_profile, candidate_profile)` estimates
+ten coarse gain points from RMS envelopes for a known-note reconstruction. It keeps
+the original onset clock, normalizes overall gain and returns only scalar controls.
+For short notes, pass a shorter `times=(0, ..., end)` schedule. This fits performance
+amplitude, not timbre or a general instrument preset.
+
 `ElectricGuitar(pickup_position=.06, pickup_width=.04)` opts into a spatial
 magnetic pickup with fractional delays and a finite uniform sensing aperture.
 `coil_spacing` adds two equal in-phase coils. These dimensions are fractions of
