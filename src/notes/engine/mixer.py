@@ -20,6 +20,7 @@ from typing import Any
 
 import numpy as np
 
+from notes.engine.articulation import expression_curve
 from notes.engine.audio import write_wav
 from notes.engine.base import Instrument, RenderContext, Voice
 from notes.engine.dsp import db_to_gain, stable_seed
@@ -88,6 +89,9 @@ def _render_voices(
             params=dict(e.params),
         )
         wave = instrument.voice(voice, ctx, rng)
+        expression = expression_curve(voice.params, len(wave), ctx.sr)
+        if expression is not None:
+            wave = wave*expression
         if 'source_gain_db' in voice.params:
             source_gain_db = float(voice.params['source_gain_db'])
             if not np.isfinite(source_gain_db) or not -120 <= source_gain_db <= 120:
