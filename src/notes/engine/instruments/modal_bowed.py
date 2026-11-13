@@ -2,16 +2,37 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 
 import numpy as np
 from scipy.signal import oaconvolve
 
-from notes.engine.articulation import pitch_curve
+from notes.engine.articulation import pitch_curve, variable_rate_read
 from notes.engine.base import Instrument, RenderContext, Voice
 from notes.engine.bow_contact import modal_bowed_string
 from notes.engine.dsp import vel_gain
 from notes.engine.effects.speaker import _minimum_phase
 from notes.engine.registry import register_instrument
+from notes.engine.tuning import known_note_tuning
+
+
+@lru_cache(maxsize=128)
+def _mean_pitch_correction(
+    freq: float, sr: int, controls: tuple[tuple[str, float | int | None], ...],
+) -> float:
+    """Semitone readout correction measured on this source's own held note.
+
+    The probe duration/window are independent of the requested performance.
+    Only the scalar correction is cached; no recording or generated waveform
+    is retained. Changing a physical control invalidates the cache key.
+    """
+    parameters = dict(controls)
+    raw, _ = modal_bowed_string(freq, 3*sr, sr, **parameters)
+    tuning = known_note_tuning(raw, sr, freq, start=1.2, end=2.4)
+    if not tuning.reliable or tuning.f0 is None:
+        raise ValueError('cannot compensate an unstable or missing bow fundamental; '
+                         'use bare pitch or change bow controls')
+    return float(12*np.log2(freq/tuning.f0))
 
 
 def _body(wave: np.ndarray, sr: int, size: float) -> np.ndarray:
@@ -33,9 +54,12 @@ class ModalBowedString(Instrument):
     velocity scales output amplitude; it does not infer bow motion or pressure.
 
     Only steady pitches, including constant pitch offsets, are supported. The
-    bare mode frequency is not the exact sounding pitch (about 10 cents flat in
-    some tested notes). No thermal rosin, body feedback, linked legato state or
-    recorded excitation is present. This does not replace Violin/Cello and is
+    bare mode frequency is not the exact sounding pitch. Optional
+    ``pitch_compensation=True`` measures the source itself and corrects its
+    mean pitch by constant sinc readout before the body. This preserves the
+    bow's oscillation regime; the small rate change also retimes its attack.
+    Note-off remains on the requested clock. No thermal rosin, body feedback,
+    linked legato state or recorded excitation is present. This does not replace Violin/Cello and is
     not an established realistic instrument preset.
     """
 
@@ -56,11 +80,14 @@ class ModalBowedString(Instrument):
     soft_a: float = 100.
     attack: float = .15
     pressure_attack: float | None = None
+    pitch_compensation: bool = False
     body_size: float = 2.2
     release: float = .18
     level: float = .32
 
     def __post_init__(self) -> None:
+        if not isinstance(self.pitch_compensation, bool):
+            raise ValueError('pitch_compensation must be a boolean')
         pitches = tuple(float(v) for v in self.open_pitches)
         if (not pitches or not np.isfinite(pitches).all() or min(pitches) < 0 or max(pitches) > 127
                 or any(b <= a for a, b in zip(pitches[:-1], pitches[1:], strict=True))):
@@ -105,15 +132,29 @@ class ModalBowedString(Instrument):
         if not np.isfinite(open_pitch) or open_pitch > v.pitch:
             raise ValueError('open_pitch must be finite and not above the note')
         scale = 2**(-(v.pitch-open_pitch)/12)
-        wave, _ = modal_bowed_string(freq, n, ctx.sr, gate=gate/ctx.sr,
-            bow_speed=float(v.params.get('bow_speed', self.bow_speed)),
-            force_ratio=float(v.params.get('force_ratio', self.force_ratio)),
-            position=float(v.params.get('bow_position', self.bow_position))/scale,
-            width=float(v.params.get('bow_width', self.bow_width))/scale,
-            stiffness=float(v.params.get('stiffness', self.stiffness/scale**2)),
-            soft_a=self.soft_a, attack=self.attack, pressure_attack=self.pressure_attack,
-            modes=self.modes, bandwidth=self.bandwidth, oversample=self.oversample,
-            tension=self.tension, length=self.length*scale, sustain=self.sustain, treble=self.treble_decay)
+        controls = {
+            'bow_speed': float(v.params.get('bow_speed', self.bow_speed)),
+            'force_ratio': float(v.params.get('force_ratio', self.force_ratio)),
+            'position': float(v.params.get('bow_position', self.bow_position))/scale,
+            'width': float(v.params.get('bow_width', self.bow_width))/scale,
+            'stiffness': float(v.params.get('stiffness', self.stiffness/scale**2)),
+            'soft_a': self.soft_a, 'attack': self.attack, 'pressure_attack': self.pressure_attack,
+            'modes': self.modes, 'bandwidth': self.bandwidth, 'oversample': self.oversample,
+            'tension': self.tension, 'length': self.length*scale, 'sustain': self.sustain, 'treble': self.treble_decay,
+        }
+        compensate = v.params.get('pitch_compensation', self.pitch_compensation)
+        if not isinstance(compensate, bool):
+            raise ValueError('pitch_compensation must be a boolean')
+        if compensate and controls['bow_speed'] > 0 and controls['force_ratio'] > 0:
+            correction = _mean_pitch_correction(freq, ctx.sr, tuple(sorted(controls.items())))
+            ratio = 2**(correction/12)
+
+            def render(count: int) -> np.ndarray:
+                return modal_bowed_string(freq, count, ctx.sr, gate=gate/ctx.sr*ratio, **controls)[0]
+
+            wave = variable_rate_read(render, np.full(n, correction), interpolation='sinc')
+        else:
+            wave, _ = modal_bowed_string(freq, n, ctx.sr, gate=gate/ctx.sr, **controls)
         wave = _body(wave, ctx.sr, self.body_size)
         count = min(n, max(2, ctx.samples(.002)))
         wave[-count:] *= np.linspace(1., 0., count)

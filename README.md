@@ -276,8 +276,14 @@ body_size=1, program=40)`.
 
 This source supports steady pitches and constant pitch offsets. It has no
 time-varying pitch, shared legato state, thermal rosin or body feedback. Its bare
-fundamental can sound about 10 cents flat; calibrated pitch correction is still
-needed. Comparisons on eight cello notes remain mixed, so the existing
+fundamental can sound flat. Optional `pitch_compensation=True` measures its own
+three-second synthesized probe and applies a constant sinc playback correction
+before the body. Only a scalar correction is cached for each frequency/rate and
+physical-control set, independently of requested note duration. Unreliable phase
+measurements raise an error. This corrects the mean of a held note; its small
+rate change also retimes the source's attack, while note-off stays on the score
+clock. The default `False` preserves the original source. Comparisons on eight
+cello notes remain mixed, so the existing
 `Violin`/`Cello` presets and the accepted palette are unchanged. The body is a
 designed minimum-phase filter, with no recorded waves or measured IRs.
 The friction curve follows equation 2 of
