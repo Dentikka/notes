@@ -263,6 +263,28 @@ body resonances, friction noise and controllable vibrato. Explicit per-note vibr
 parameters override the preset. These are procedural approximations, not recorded
 instrument libraries or a claim of reference matching.
 
+`ModalBowedString()` is a separate experimental nonlinear bow/string source.
+Its soft friction curve drives finite string modes through a passive midpoint
+contact with a checked globally unique scalar root. A fixed physical modal band
+preserves the underlying model across output rates; the minimum integration
+factor is 16x and increases when needed. Open strings default to cello tuning;
+per-note `open_pitch`, `bow_speed`, `force_ratio`, `bow_position`, `bow_width`
+and `stiffness` select geometry and bow controls. Note velocity scales amplitude
+independently of bow speed/force. Violin geometry can be specified with
+`ModalBowedString(open_pitches=(55,62,69,76), length=.328, tension=55,
+body_size=1, program=40)`.
+
+This source supports steady pitches and constant pitch offsets. It has no
+time-varying pitch, shared legato state, thermal rosin or body feedback. Its bare
+fundamental can sound about 10 cents flat; calibrated pitch correction is still
+needed. Comparisons on eight cello notes remain mixed, so the existing
+`Violin`/`Cello` presets and the accepted palette are unchanged. The body is a
+designed minimum-phase filter, with no recorded waves or measured IRs.
+The friction curve follows equation 2 of
+[Efficient Simulation of the Bowed String in Modal Form](https://dafx2020.mdw.ac.at/proceedings/papers/DAFx20in22_paper_14.pdf);
+the solver here is independently implemented and does not reproduce that paper's
+non-iterative algorithm.
+
 Run `notes render examples/instrument_palette.py -o palette --spectrogram` for a
 palette including electric/acoustic guitars, bass and rock drums. The example's
 `build_song(name)` also exposes each instrument separately.

@@ -3,6 +3,7 @@
 from notes.engine.instruments.acoustic import AcousticGuitar, NylonGuitar
 from notes.engine.instruments.drums import DrumKit
 from notes.engine.instruments.fm import FM, Bell, EPiano
+from notes.engine.instruments.modal_bowed import ModalBowedString
 from notes.engine.instruments.modal_string import ModalString
 from notes.engine.instruments.noise import Noise
 from notes.engine.instruments.orchestral import BowedString, Cello, Piano, Violin
@@ -26,6 +27,7 @@ __all__ = [
     "EPiano",
     "ElectricGuitar",
     "ModalString",
+    "ModalBowedString",
     "Lead",
     "Noise",
     "Pad",
