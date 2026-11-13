@@ -12,6 +12,7 @@ from notes.engine.base import Instrument, RenderContext, Voice
 from notes.engine.bow_contact import modal_bowed_string
 from notes.engine.dsp import vel_gain
 from notes.engine.effects.speaker import _minimum_phase
+from notes.engine.instruments.orchestral import _body_eq_bands, _body_equalize
 from notes.engine.registry import register_instrument
 from notes.engine.tuning import known_note_tuning
 
@@ -61,6 +62,8 @@ class ModalBowedString(Instrument):
     Note-off remains on the requested clock. No thermal rosin, body feedback,
     linked legato state or recorded excitation is present. This does not replace Violin/Cello and is
     not an established realistic instrument preset.
+    body_eq accepts the legacy strings' optional per-note output EQ. It is
+    excluded from source pitch calibration because it does not drive the string.
     """
 
     program: int | None = 42
@@ -84,8 +87,10 @@ class ModalBowedString(Instrument):
     body_size: float = 2.2
     release: float = .18
     level: float = .32
+    body_eq: tuple[tuple[float, float, float], ...] = ()
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, 'body_eq', _body_eq_bands(self.body_eq))
         if not isinstance(self.pitch_compensation, bool):
             raise ValueError('pitch_compensation must be a boolean')
         pitches = tuple(float(v) for v in self.open_pitches)
@@ -117,6 +122,7 @@ class ModalBowedString(Instrument):
         return self.release
 
     def voice(self, v: Voice, ctx: RenderContext, rng: np.random.Generator) -> np.ndarray:
+        body_eq = _body_eq_bands(v.params.get('body_eq', self.body_eq))
         gate = ctx.samples(v.dur)
         n = gate+ctx.samples(self.release)
         if gate == 0 or v.vel <= 0 or self.level == 0:
@@ -158,4 +164,4 @@ class ModalBowedString(Instrument):
         wave = _body(wave, ctx.sr, self.body_size)
         count = min(n, max(2, ctx.samples(.002)))
         wave[-count:] *= np.linspace(1., 0., count)
-        return wave*self.level*vel_gain(v.vel)
+        return _body_equalize(wave, ctx.sr, body_eq, self.release)*self.level*vel_gain(v.vel)

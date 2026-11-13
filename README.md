@@ -263,6 +263,16 @@ body resonances, friction noise and controllable vibrato. Explicit per-note vibr
 parameters override the preset. These are procedural approximations, not recorded
 instrument libraries or a claim of reference matching.
 
+`Violin`, `Cello`, `BowedString` and `ModalBowedString` accept optional `body_eq`:
+up to eight `(frequency_Hz, Q, gain_dB)` peaking filters, also overridden per note
+with `music.param(body_eq=...)`. The empty default preserves the existing sound;
+an empty note override disables instrument-level EQ. Frequencies are absolute
+and do not scale with body size. The declared release must cover the estimated
+filter decay; frequencies outside the output band are rejected. This is effective
+output colouring before expression/track processing, not recovered body mechanics.
+`examples/reference_violin_strings.py` demonstrates a reference-specific G/A-string
+correction; its D/E notes keep the baseline. The general palette is unchanged.
+
 `ModalBowedString()` is a separate experimental nonlinear bow/string source.
 Its soft friction curve drives finite string modes through a passive midpoint
 contact with a checked globally unique scalar root. A fixed physical modal band
