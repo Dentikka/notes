@@ -404,6 +404,14 @@ edge margins. This is a calibration tool, not an unknown-melody transcriber or a
 replacement for the existing YIN path. It helps prevent a distorted reference's
 pitch-estimator bias from being mistaken for a timbre mismatch.
 
+For detuned high notes, `harmonic_bandwidth=True` scales the demodulation band
+with pitch and harmonic number, while capping it below the neighboring partial.
+The legacy fixed narrow band can suppress a real detuned upper partial and make
+its phase estimate follow noise. The new mode still rejects wrong priors,
+missing fundamentals and unstable phase; check `reliable`. Its default is False
+to preserve existing calibrations. A moving tone can have a clear note label
+while failing the stricter constant-frequency test.
+
 `notes.ears.string_inharmonicity(mono, sr, expected_hz)` estimates a plucked
 string's dimensionless stiffness coefficient from simultaneous partial phases.
 It subtracts the shared fundamental phase before fitting, avoiding a common
