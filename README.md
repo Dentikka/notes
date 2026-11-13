@@ -283,6 +283,7 @@ output colouring before expression/track processing, not recovered body mechanic
 correction; its D/E notes keep the baseline. The general palette is unchanged.
 
 `ModalBowedString()` is a separate experimental nonlinear bow/string source.
+
 Its soft friction curve drives finite string modes through a passive midpoint
 contact with a checked globally unique scalar root. A fixed physical modal band
 preserves the underlying model across output rates; the minimum integration
@@ -309,6 +310,14 @@ The friction curve follows equation 2 of
 [Efficient Simulation of the Bowed String in Modal Form](https://dafx2020.mdw.ac.at/proceedings/papers/DAFx20in22_paper_14.pdf);
 the solver here is independently implemented and does not reproduce that paper's
 non-iterative algorithm.
+
+`notes.engine.bowed_body` provides reusable passive string/moving-bridge
+mechanics for experimental contact solvers. Positive-mass body modes enter the
+mass, stiffness and damping matrices, so bridge motion can feed back into bow
+contact. Full non-proportional damping is retained. The midpoint operators use
+coupled-mode prewarping and expose the collocated input mobility for independent
+work/energy checks. This low-level kernel is separate from instrument presets;
+passivity and numerical convergence do not establish acoustic realism.
 
 Run `notes render examples/instrument_palette.py -o palette --spectrogram` for a
 palette including electric/acoustic guitars, bass and rock drums. The example's
