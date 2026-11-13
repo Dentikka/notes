@@ -263,6 +263,15 @@ body resonances, friction noise and controllable vibrato. Explicit per-note vibr
 parameters override the preset. These are procedural approximations, not recorded
 instrument libraries or a claim of reference matching.
 
+`BowedString`, `Violin` and `Cello` accept per-note `pressure` and `bow_noise`,
+for example `music.param(pressure=.22, bow_noise=.018)`. Values must be finite
+and nonnegative; zero is allowed. They override the corresponding preset fields,
+independently of note velocity, vibrato, `body_eq` and amplitude expression.
+Here `pressure` controls harmonic roll-off, not a measured physical bow force;
+the parameters do not automatically infer pp/ff or certify a realistic dynamic.
+The default source is unchanged. These controls belong to the harmonic bowed
+source; `ModalBowedString` has its separate physical contact parameters.
+
 `Violin`, `Cello`, `BowedString` and `ModalBowedString` accept optional `body_eq`:
 up to eight `(frequency_Hz, Q, gain_dB)` peaking filters, also overridden per note
 with `music.param(body_eq=...)`. The empty default preserves the existing sound;

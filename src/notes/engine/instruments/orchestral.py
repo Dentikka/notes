@@ -223,7 +223,9 @@ class BowedString(Instrument):
     """Sustained harmonic bow source shaped by fixed body resonances.
 
     A procedural approximation, not a nonlinear bow/string simulation.
-    pressure controls upper harmonics; bow_noise the friction component.
+    pressure controls upper harmonics; bow_noise the friction component. Both
+    accept finite nonnegative per-note overrides with the same names. These are
+    spectral/noise controls, not measured bow force or an inferred dynamic mark.
     Per-note legato=True shortens attack; vibrato/bends/pitch_points are supported.
     Optional body_eq is a tuple of (frequency_Hz, Q, gain_dB) peaking filters,
     overridden per note with the same parameter. Frequencies are absolute, not
@@ -257,6 +259,15 @@ class BowedString(Instrument):
 
     def voice(self, v: Voice, ctx: RenderContext, rng: np.random.Generator) -> np.ndarray:
         body_eq = _body_eq_bands(v.params.get('body_eq', self.body_eq))
+        controls = {}
+        for name in ('pressure', 'bow_noise'):
+            try:
+                value = float(v.params[name]) if name in v.params else getattr(self, name)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f'{name} must be finite and nonnegative') from exc
+            if not np.isfinite(value) or value < 0:
+                raise ValueError(f'{name} must be finite and nonnegative')
+            controls[name] = value
         n = ctx.samples(v.dur) + ctx.samples(self.release)
         t = np.arange(n) / ctx.sr
         params = {"vibrato": self.vibrato, "vibrato_rate": self.vibrato_rate, **v.params}
@@ -269,10 +280,10 @@ class BowedString(Instrument):
             hz = v.freq * k
             body = 0.35 + sum(g / (1 + ((hz - f / self.body_size) / (w / self.body_size)) ** 2)
                               for f, w, g in ((460, 100, 0.9), (550, 90, 0.7), (2400, 700, 1.8)))
-            amp = body * np.exp(-(k - 1) / (8 + 30 * self.pressure * v.vel)) / k
+            amp = body * np.exp(-(k - 1) / (8 + 30 * controls['pressure'] * v.vel)) / k
             y += amp * np.sin(2 * np.pi * k * phase)
         noise = filt(rng.normal(size=n), "highpass", min(1000 / self.body_size, ctx.sr * 0.3), ctx.sr, 0.7)
-        y += self.bow_noise * noise
+        y += controls['bow_noise'] * noise
         y *= 1 + 0.025 * np.sin(2 * np.pi * 1.4 * t + rng.uniform(0, 2 * np.pi))
         attack = 0.025 if v.params.get("legato", False) else self.attack
         env = adsr(ctx.samples(v.dur), n, ctx.sr, attack, 0.3, 0.88, self.release)
