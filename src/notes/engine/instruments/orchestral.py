@@ -4,10 +4,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from scipy.signal import lfilter
 
 from notes.engine.articulation import pitch_curve
 from notes.engine.base import Instrument, RenderContext, Voice
-from notes.engine.dsp import adsr, filt, vel_gain
+from notes.engine.dsp import adsr, biquad, filt, vel_gain
 from notes.engine.registry import register_instrument
 
 
@@ -15,6 +16,52 @@ def _positive(**values: float) -> None:
     for name, value in values.items():
         if not np.isfinite(value) or value <= 0:
             raise ValueError(f"{name} must be finite and positive")
+
+
+def _body_eq_bands(value: object) -> tuple[tuple[float, float, float], ...]:
+    """Validate small, explicit (Hz, Q, dB) equalizer recipes, including JSON lists."""
+    if not isinstance(value, (list, tuple)) or len(value) > 8:
+        raise ValueError('body_eq needs at most eight (frequency, Q, gain_db) bands')
+    result = []
+    for band in value:
+        if not isinstance(band, (list, tuple)) or len(band) != 3:
+            raise ValueError('body_eq bands need (frequency, Q, gain_db)')
+        try:
+            frequency, q, gain = (float(v) for v in band)
+        except (TypeError, ValueError) as error:
+            raise ValueError('body_eq bands must contain finite numbers') from error
+        if (not np.isfinite((frequency, q, gain)).all() or frequency < 5
+                or not .05 <= q <= 50 or not -48 <= gain <= 24):
+            raise ValueError('body_eq needs Hz >= 5, .05 <= Q <= 50 and -48 <= gain_db <= 24')
+        if gain:
+            result.append((frequency, q, gain))
+    return tuple(result)
+
+
+def _body_equalize(wave: np.ndarray, sr: int, bands: tuple[tuple[float, float, float], ...],
+                   release: float) -> np.ndarray:
+    """Causal per-voice EQ; require its estimated decay to fit the declared release."""
+    coefficients = []
+    decay = 0.
+    for frequency, q, gain in bands:
+        if frequency >= sr*.49:
+            raise ValueError('body_eq frequency must be below .49 of the sample rate')
+        b, a = biquad('peak', frequency, sr, q, gain)
+        if np.array_equal(b, a):
+            continue
+        radius = float(np.max(abs(np.roots(a))))
+        if radius >= 1:
+            raise ValueError('body_eq filter is not stable')
+        decay += np.log(1e-3)/np.log(radius)/sr if radius else 0.
+        coefficients.append((b, a))
+    if decay > release:
+        raise ValueError('body_eq decay exceeds release; increase release or reduce filter Q')
+    for b, a in coefficients:
+        wave = lfilter(b, a, wave)
+    if coefficients and len(wave):
+        count = min(len(wave), max(2, round(.002*sr)))
+        wave[-count:] *= np.linspace(1., 0., count)
+    return wave
 
 
 @register_instrument("piano")
@@ -178,6 +225,11 @@ class BowedString(Instrument):
     A procedural approximation, not a nonlinear bow/string simulation.
     pressure controls upper harmonics; bow_noise the friction component.
     Per-note legato=True shortens attack; vibrato/bends/pitch_points are supported.
+    Optional body_eq is a tuple of (frequency_Hz, Q, gain_dB) peaking filters,
+    overridden per note with the same parameter. Frequencies are absolute, not
+    scaled by body_size. Empty preserves the original renderer. This is effective
+    output coloration, not an identified mechanical body. The release must cover
+    the filters' estimated decay; expression gain is applied afterward by the mixer.
     """
 
     program: int | None = 40
@@ -189,8 +241,10 @@ class BowedString(Instrument):
     vibrato: float = 0.12
     vibrato_rate: float = 5.3
     level: float = 0.32
+    body_eq: tuple[tuple[float, float, float], ...] = ()
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, 'body_eq', _body_eq_bands(self.body_eq))
         _positive(body_size=self.body_size, attack=self.attack, release=self.release,
                   vibrato_rate=self.vibrato_rate)
         for name in ("pressure", "bow_noise", "vibrato", "level"):
@@ -202,6 +256,7 @@ class BowedString(Instrument):
         return self.release
 
     def voice(self, v: Voice, ctx: RenderContext, rng: np.random.Generator) -> np.ndarray:
+        body_eq = _body_eq_bands(v.params.get('body_eq', self.body_eq))
         n = ctx.samples(v.dur) + ctx.samples(self.release)
         t = np.arange(n) / ctx.sr
         params = {"vibrato": self.vibrato, "vibrato_rate": self.vibrato_rate, **v.params}
@@ -224,7 +279,7 @@ class BowedString(Instrument):
         if n:
             count = min(n, max(2, ctx.samples(0.002)))
             env[-count:] *= np.linspace(1, 0, count)
-        return self.level * vel_gain(v.vel) * y * env
+        return _body_equalize(self.level * vel_gain(v.vel) * y * env, ctx.sr, body_eq, self.release)
 
 
 @register_instrument("violin")
