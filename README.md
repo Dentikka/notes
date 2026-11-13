@@ -319,6 +319,20 @@ coupled-mode prewarping and expose the collocated input mobility for independent
 work/energy checks. This low-level kernel is separate from instrument presets;
 passivity and numerical convergence do not establish acoustic realism.
 
+`notes.engine.thermal_bow.thermal_bowed_string` is a low-level experimental
+source using tangential elastic/plastic contact and a positive thermal network.
+Rosin strength depends on its temperature history, enabling sustained stick-slip
+motion in regimes where the isothermal control decays. Contact strain energy,
+plastic heat, conduction/transport losses, and numerical loss are tracked
+separately. Optional traces expose each body's velocity and acceleration;
+the returned endpoint-gradient signal is not calibrated acoustic pressure.
+The heat ladder and finite contact compliance are independent approximations
+inspired by
+[Bowed String Simulation Using a Thermal Friction Model](https://euphonics.org/wp-content/uploads/2022/03/Thermal_bowing.pdf),
+not an exact implementation of that paper. No recorded excitation or measured
+response is used. This source does not change the existing instrument presets
+and has not established realism across notes, dynamics, or instruments.
+
 Run `notes render examples/instrument_palette.py -o palette --spectrogram` for a
 palette including electric/acoustic guitars, bass and rock drums. The example's
 `build_song(name)` also exposes each instrument separately.
