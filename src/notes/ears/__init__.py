@@ -8,6 +8,7 @@ from notes.ears.fit import FitResult, fit_loss, fit_reference
 from notes.ears.inharmonicity import InharmonicPartial, StringInharmonicity, string_inharmonicity
 from notes.ears.mert import MertEar
 from notes.ears.note_profile import PartialDecay, harmonic_shape_distance, infer_expression_points, partial_decays
+from notes.ears.partial_envelopes import PartialEnvelopes, partial_envelopes
 from notes.ears.polyphonic import TemplateTrack, notes_from_templates, template_track
 from notes.ears.texture import (
     InterharmonicEnergy,
@@ -36,6 +37,7 @@ __all__ = [
     "KnownNoteTuning",
     "MertEar",
     "PartialDecay",
+    "PartialEnvelopes",
     "RoughnessEstimate",
     "TextureFitResult",
     "StringInharmonicity",
@@ -58,6 +60,7 @@ __all__ = [
     "load",
     "notes_from_templates",
     "partial_decays",
+    "partial_envelopes",
     "string_inharmonicity",
     "template_track",
     "to_clap_rate",
