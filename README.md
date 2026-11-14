@@ -508,6 +508,14 @@ acoustic and nylon defaults remain unchanged. The boundary equations follow
 The same known-note audit is exposed by the CLI:
 `notes audit-note reference.wav render.wav --pitch A3 -o report.json`.
 It does not infer a part from a mixture and does not label the instrument realistic.
+For moving known notes, `profile_note(..., partial_mode="tracked")` or
+`notes audit-note ... --partial-mode tracked` follows the fundamental within the
+known-pitch prior and integrates wider, non-overlapping bands around the moving
+partials. Fractional FFT-bin overlap keeps their width continuous. Unsupported
+fundamental frames are flagged; this is not melody tracking or certified tuning.
+These band energies include more nearby noise than the original measurement.
+Both notes must use the same mode; tracked reports use metric version 3, while
+the default fixed mode retains its original numerical behaviour and version 2.
 
 `notes compare reference.wav render.wav --mert` optionally adds audio-only
 MERT-95M similarity alongside the existing measurements. `--mert-path PATH` uses
