@@ -272,6 +272,14 @@ the parameters do not automatically infer pp/ff or certify a realistic dynamic.
 The default source is unchanged. These controls belong to the harmonic bowed
 source; `ModalBowedString` has its separate physical contact parameters.
 
+Optional `bow_noise_seed` on these three instruments, or per note via
+`music.param(bow_noise_seed=41)`, changes only the procedural noise realization.
+It accepts an unsigned 64-bit integer. Pitch, amplitude modulation and the caller's
+random stream stay fixed, so seeded texture probes can vary independently.
+The default `None` preserves the original waveform and random draw order; an
+explicit per-note `None` restores that behavior for a configured instrument.
+This is a repeatability control, not an automatic improvement in realism.
+
 `Violin`, `Cello`, `BowedString` and `ModalBowedString` accept optional `body_eq`:
 up to eight `(frequency_Hz, Q, gain_dB)` peaking filters, also overridden per note
 with `music.param(body_eq=...)`. The empty default preserves the existing sound;
