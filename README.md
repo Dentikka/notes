@@ -318,6 +318,12 @@ contact. Full non-proportional damping is retained. The midpoint operators use
 coupled-mode prewarping and expose the collocated input mobility for independent
 work/energy checks. This low-level kernel is separate from instrument presets;
 passivity and numerical convergence do not establish acoustic realism.
+Optional `bridge_weights` in `mechanics` and `thermal_bowed_string` specify
+signed body-mode shapes at the selected string's bridge port. Endpoint lift,
+mass coupling, stiffness and applied forces all use the same weights, preserving
+the work identity. This permits different string ports to excite a fixed body
+and radiation observer differently. Unit weights retain the original model;
+these coefficients are not a measured or calibrated bridge geometry.
 
 `notes.engine.thermal_bow.thermal_bowed_string` is a low-level experimental
 source using tangential elastic/plastic contact and a positive thermal network.
