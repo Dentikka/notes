@@ -527,6 +527,18 @@ These band energies include more nearby noise than the original measurement.
 Both notes must use the same mode; tracked reports use metric version 3, while
 the default fixed mode retains its original numerical behaviour and version 2.
 
+`notes.ears.interharmonic_energy` measures a separate residual-band axis for
+sustained known-pitch notes. It includes FM leakage and inharmonic energy as
+well as noise; quiet windows and inaudible upper bands are flagged. Optional
+`notes audit-note ... --texture-window 1 2.5 --texture-band 1000 10000`
+records it alongside the existing profile measurements.
+`fit_roughness(reference, render, sr, f0)` renders a baseline, seeded probes and
+one new-seed verification. The callback takes `(roughness, material_seed)` and
+must keep the notes, timing and other controls fixed. A sufficient or excessive
+baseline gets no added grain. Overshooting or regressing verification retains
+the baseline, with the attempted result recorded in history. This fits one
+conditional texture axis and does not certify the instrument's realism.
+
 `notes compare reference.wav render.wav --mert` optionally adds audio-only
 MERT-95M similarity alongside the existing measurements. `--mert-path PATH` uses
 an existing pinned checkpoint offline; without it, the three checkpoint data files
