@@ -140,6 +140,7 @@ def thermal_bowed_string(
     modes: int = 128, bandwidth: float = 18000., stiffness: float = 1e-5,
     tension: float = 110., length: float = .69, sustain: float = 12., treble: float = 1.,
     position: float = .08, width: float = .012, bodies: BodyModes = DEFAULT_BODIES,
+    bridge_weights: tuple[float, ...] | None = None,
 ) -> tuple[np.ndarray, dict[str, float | int | bool | None]]:
     """Experimental sustained source with thermal friction and moving body modes.
 
@@ -186,7 +187,8 @@ def thermal_bowed_string(
     freq, tension, length, stiffness = (_finite(name, value) for name, value in zip(
         ('frequency', 'tension', 'length', 'stiffness'), (freq, tension, length, stiffness), strict=True))
     m = mechanics(freq, modes=modes, bandwidth=bandwidth, stiffness=stiffness, tension=tension,
-                  length=length, sustain=sustain, treble=treble, position=position, width=width, bodies=bodies)
+                  length=length, sustain=sustain, treble=treble, position=position, width=width, bodies=bodies,
+                  bridge_weights=bridge_weights)
     normal = float(force_ratio*tension*np.sqrt(1+stiffness)/(2*length*freq)*bow_speed)
     if normal <= 0 or n == 0 or gate == 0:
         return np.zeros(n), {'silent': True}

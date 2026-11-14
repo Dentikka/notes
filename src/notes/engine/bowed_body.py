@@ -25,6 +25,7 @@ class Mechanics:
     force: np.ndarray
     readout: np.ndarray
     body_count: int
+    bridge_weights: np.ndarray | None = None
 
 
 @dataclass(frozen=True)
@@ -53,13 +54,19 @@ def _finite(name: str, value: float) -> float:
 
 def mechanics(freq: float, *, modes: int = 128, bandwidth: float = 18000., stiffness: float = 1e-5,
               tension: float = 110., length: float = .69, sustain: float = 12., treble: float = 1.,
-              position: float = .08, width: float = .012, bodies: BodyModes = ()) -> Mechanics:
+              position: float = .08, width: float = .012, bodies: BodyModes = (),
+              bridge_weights: tuple[float, ...] | None = None) -> Mechanics:
     """Construct physical M/K/C before choosing any output or integration rate.
 
     Body entries are (frequency Hz, Q, peak velocity mobility m/s/N). Their
     displacement coordinates add at the string endpoint. The readout is the
     finite-basis endpoint gradient, not an exact reaction force or far-field
     pressure. Input and velocity are collocated for mechanical work accounting.
+    ``bridge_weights`` are signed mode-shape values at this string's bridge
+    port, so endpoint displacement is their dot product with body coordinates.
+    They enter all inertial, elastic and force terms, not just output EQ.
+    None keeps the original unit weights. This is one port, not a complete
+    multi-string or two-polarisation instrument model.
     """
     if not isinstance(modes, int) or isinstance(modes, bool) or not 8 <= modes <= 128:
         raise ValueError('modes must be an integer from 8 to 128')
@@ -81,19 +88,27 @@ def mechanics(freq: float, *, modes: int = 128, bandwidth: float = 18000., stiff
         if not 0 < f < bandwidth or min(q, peak) <= 0:
             raise ValueError('body frequency/Q/mobility must be positive and frequency below the physical band')
         normalized.append((f, q, peak))
+    if bridge_weights is None:
+        weights = (1.,)*len(normalized)
+    else:
+        if not isinstance(bridge_weights, (tuple, list)) or len(bridge_weights) != len(normalized):
+            raise ValueError('bridge_weights must have one finite value per body mode')
+        weights = tuple(_finite('bridge weight', value) for value in bridge_weights)
     return _mechanics(freq, modes, bandwidth, stiffness, tension, length, sustain, treble,
-                      position, width, tuple(normalized))
+                      position, width, tuple(normalized), weights)
 
 
 @lru_cache(maxsize=32)
 def _mechanics(freq: float, modes: int, bandwidth: float, stiffness: float, tension: float, length: float,
-               sustain: float, treble: float, position: float, width: float, bodies: BodyModes) -> Mechanics:
+               sustain: float, treble: float, position: float, width: float, bodies: BodyModes,
+               bridge_weights: tuple[float, ...]) -> Mechanics:
     h = np.arange(1, modes+1, dtype=float)
     hz = freq*h*np.sqrt((1+stiffness*h*h)/(1+stiffness))
     h, hz = h[hz < bandwidth], hz[hz < bandwidth]
     if len(h) < 2:
         raise ValueError('physical band needs at least two string modes')
     count, body_count = len(h), len(bodies)
+    weights = np.asarray(bridge_weights, dtype=float)
     total_mass = tension*(1+stiffness)/(4*length*freq*freq)
     gamma = np.log(1000)*(1/sustain+max(0, 1/treble-1/sustain)*(hz/freq-1)**2
                           / max(1, (4000/freq-1)**2))
@@ -107,19 +122,20 @@ def _mechanics(freq: float, modes: int, bandwidth: float, stiffness: float, tens
             M[count+j, count+j] = mass
             K[count+j, count+j] = mass*omega**2
             C[count+j, count+j] = mass*omega/body_q
-        M[:count, count:] = total_mass/(np.pi*h[:, None])
+        M[:count, count:] = total_mass/(np.pi*h[:, None])*weights[None, :]
         M[count:, :count] = M[:count, count:].T
-        M[count:, count:] += total_mass/3
-        K[count:, count:] += tension/length
+        port = np.outer(weights, weights)
+        M[count:, count:] += total_mass/3*port
+        K[count:, count:] += tension/length*port
     values, U = eigh(K, M)
     if values.min() <= 0:
         raise ValueError('mechanical stiffness must be positive')
-    force = np.r_[np.sin(np.pi*h*position)*np.sinc(h*width/2), np.full(body_count, 1-position)]
-    readout = np.r_[tension*np.pi*h*(1+stiffness*h*h)/length, np.full(body_count, -tension/length)]
+    force = np.r_[np.sin(np.pi*h*position)*np.sinc(h*width/2), (1-position)*weights]
+    readout = np.r_[tension*np.pi*h*(1+stiffness*h*h)/length, -tension/length*weights]
     omega = np.sqrt(values)
-    for array in (M, K, C, U, force, readout, omega):
+    for array in (M, K, C, U, force, readout, omega, weights):
         array.flags.writeable = False
-    return Mechanics(M, K, C, U, omega, force, readout, body_count)
+    return Mechanics(M, K, C, U, omega, force, readout, body_count, weights)
 
 
 def midpoint(m: Mechanics, sr: int, factor: int) -> Midpoint:
@@ -150,7 +166,11 @@ def midpoint(m: Mechanics, sr: int, factor: int) -> Midpoint:
     P = solve(left, identity+dt*A/2)
     Q = solve(left, dt*forcing)
     readout = (m.readout@m.U)/omega
-    body_velocity = m.U[-m.body_count:].sum(axis=0) if m.body_count else np.zeros(n)
+    body_velocity = np.zeros(n)
+    if m.body_count:
+        weights = np.ones(m.body_count) if m.bridge_weights is None else m.bridge_weights
+        body_velocity = (m.U[-m.body_count:].sum(axis=0) if np.all(weights == 1.)
+                         else weights@m.U[-m.body_count:])
     mobility = float(.5*coupling@Q[n:])
     if mobility <= 0:
         raise ArithmeticError('collocated midpoint mobility must be positive')

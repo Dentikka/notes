@@ -1,10 +1,11 @@
 """Independent convex-contact roots, thermal solves and total source work."""
 import numpy as np
 import pytest
-from notes.engine.bowed_body import mechanics, midpoint
-from notes.engine.thermal_bow import contact, heat_network, heat_step, thermal_bowed_string
 from scipy.linalg import solve
 from scipy.optimize import brentq
+
+from notes.engine.bowed_body import mechanics, midpoint
+from notes.engine.thermal_bow import contact, heat_network, heat_step, thermal_bowed_string
 
 
 def test_elastoplastic_contact_matches_independent_velocity_root_and_energy():
@@ -149,3 +150,16 @@ def test_invalid_thermal_state():
         (np.zeros(len(heat.capacities)), 0., float('inf'))]:
         with pytest.raises(ValueError):
             heat_step(heat, temperature, energy, slip)
+
+
+def test_signed_bridge_port_changes_body_coordinates_without_changing_contact_work():
+    args = {'gate': .1, 'attack': .05, 'modes': 8, 'bandwidth': 4000.,
+            'bodies': ((460., 20., .01), (550., 20., .005)), 'audit': True, 'oversample': 16}
+    a, b = {}, {}
+    y, before = thermal_bowed_string(196., 640, 8000, trace=a, **args)
+    z, after = thermal_bowed_string(196., 640, 8000, trace=b, bridge_weights=(1., -1.), **args)
+    np.testing.assert_allclose(y, z, atol=1e-9, rtol=1e-8)
+    np.testing.assert_allclose(a['body_velocity'][0], b['body_velocity'][0], atol=1e-9, rtol=1e-7)
+    np.testing.assert_allclose(a['body_velocity'][1], -b['body_velocity'][1], atol=1e-9, rtol=1e-7)
+    assert before['bow_work'] == pytest.approx(after['bow_work'], rel=1e-9)
+    assert after['maximum_energy_balance_error'] < 1e-12
