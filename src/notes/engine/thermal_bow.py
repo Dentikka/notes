@@ -16,6 +16,7 @@ from scipy.signal import resample_poly
 
 from notes.engine.bowed_body import BodyModes, _finite, mechanics, midpoint
 from notes.engine.dsp import dc_block
+from notes.engine.material_grain import SpatialGrain
 
 DEFAULT_BODIES = ((460., 20., .01), (550., 20., .005), (2400., 2., 2/(.06*2*np.pi*2400)))
 
@@ -141,6 +142,7 @@ def thermal_bowed_string(
     tension: float = 110., length: float = .69, sustain: float = 12., treble: float = 1.,
     position: float = .08, width: float = .012, bodies: BodyModes = DEFAULT_BODIES,
     bridge_weights: tuple[float, ...] | None = None,
+    roughness: float = 0., grain_length: float = 1e-4, grain_seed: int = 17,
 ) -> tuple[np.ndarray, dict[str, float | int | bool | None]]:
     """Experimental sustained source with thermal friction and moving body modes.
 
@@ -156,9 +158,16 @@ def thermal_bowed_string(
     mechanical prewarping converges to the physical system under refinement.
     Static sticking may leave nonzero mechanical/contact energy after note-off.
 
-    Parameters describe an approximation, not measured violin rosin. No bow
-    roughness, torsion, changing pitch, linked legato or radiation model is
-    inferred here. This does not replace the accepted Violin/Cello presets.
+    Optional roughness modulates yield strength by a bounded spatial material
+    field, sampled at the previous signed plastic displacement. Sticking does
+    not advance that coordinate. No time-domain noise is added to the output.
+    Zero roughness retains the original wave and previous diagnostic values.
+    Inspect ``max_plastic_step_over_grain_cell`` and refine the integration if
+    material features are crossed too quickly; it is not an accuracy proof.
+
+    Parameters describe a designed approximation, not measured violin rosin.
+    Torsion, changing pitch, linked legato and acoustic radiation are not inferred.
+    This does not replace the accepted Violin/Cello presets.
     """
     if (not isinstance(n, int) or isinstance(n, bool) or n < 0
             or not isinstance(sr, int) or isinstance(sr, bool) or sr < 4000):
@@ -172,6 +181,11 @@ def thermal_bowed_string(
         raise ValueError('isothermal and audit must be boolean')
     if trace is not None and not isinstance(trace, dict):
         raise ValueError('trace must be a dictionary or None')
+    roughness, grain_length = _finite('roughness', roughness), _finite('grain length', grain_length)
+    if not 0 <= roughness <= .25 or grain_length/4 <= 0:
+        raise ValueError('roughness must be from zero to .25 and grain length positive')
+    if not isinstance(grain_seed, int) or isinstance(grain_seed, bool) or not 0 <= grain_seed < 2**64:
+        raise ValueError('grain seed must be an unsigned 64-bit integer')
     bow_speed, force_ratio, attack, contact_stiffness, cold_mu, hot_mu, softening_temperature = (
         _finite(name, value) for name, value in zip(
             ('bow speed', 'force ratio', 'attack', 'contact stiffness', 'cold mu', 'hot mu', 'softening temperature'),
@@ -214,6 +228,9 @@ def thermal_bowed_string(
     work = mechanical_loss = plastic_heat = numerical_loss = cooling = balance = 0.
     peak_temperature = 0.
     yielded_steps = 0
+    grain = SpatialGrain(grain_length, grain_seed) if roughness else None
+    material_position = 0.
+    max_grain_step = 0.
     body_map = m.U[-m.body_count:] if m.body_count else np.zeros((0, count))
     if trace is not None:
         force_trace, slip_trace, temperature_trace = (np.empty_like(output) for _ in range(3))
@@ -224,10 +241,16 @@ def thermal_bowed_string(
         speed = bow_speed*min(1., time/attack)*min(1., max(0., (gate-time)/.06))
         mu = cold_mu if isothermal else max(
             hot_mu, cold_mu-(cold_mu-hot_mu)*float(temperature[0])/softening_temperature)
+        if grain is not None:
+            mu *= 1+roughness*grain(material_position)
         free = model.P@state
         free_speed = float(.5*model.coupling@(state[count:]+free[count:]))
         force, slip, heat_energy, numerical, yielded = _contact(speed-free_speed, model.mobility,
             b, normal*mu, contact_stiffness, model.dt)
+        if grain is not None and yielded:
+            plastic_step = model.dt*slip-(force-b)/contact_stiffness
+            material_position += plastic_step
+            max_grain_step = max(max_grain_step, abs(plastic_step)/grain.spacing)
         next_state = free+model.Q*force
         next_temperature, heat_loss = _heat_step(heat, temperature, heat_energy, slip)
         output[i] = model.readout@next_state[:count]
@@ -263,4 +286,6 @@ def thermal_bowed_string(
         'final_heat_energy': float(heat.capacities@temperature), 'bow_work': work,
         'mechanical_loss': mechanical_loss if audit else None, 'plastic_heat': plastic_heat,
         'numerical_loss': numerical_loss, 'cooling_loss': cooling,
-        'maximum_energy_balance_error': balance if audit else None}
+        'maximum_energy_balance_error': balance if audit else None,
+        'roughness': roughness, 'grain_length_m': grain_length, 'grain_seed': grain_seed,
+        'material_position': material_position, 'max_plastic_step_over_grain_cell': max_grain_step}
