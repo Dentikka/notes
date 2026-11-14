@@ -226,6 +226,9 @@ class BowedString(Instrument):
     pressure controls upper harmonics; bow_noise the friction component. Both
     accept finite nonnegative per-note overrides with the same names. These are
     spectral/noise controls, not measured bow force or an inferred dynamic mark.
+    Optional bow_noise_seed (also per note) selects only the noise realization,
+    preserving pitch, amplitude modulation and the caller's random stream. None
+    keeps the original shared random stream, including its exact draw order.
     Per-note legato=True shortens attack; vibrato/bends/pitch_points are supported.
     Optional body_eq is a tuple of (frequency_Hz, Q, gain_dB) peaking filters,
     overridden per note with the same parameter. Frequencies are absolute, not
@@ -238,6 +241,7 @@ class BowedString(Instrument):
     body_size: float = 1.0
     pressure: float = 0.55
     bow_noise: float = 0.025
+    bow_noise_seed: int | None = None
     attack: float = 0.12
     release: float = 0.18
     vibrato: float = 0.12
@@ -247,6 +251,7 @@ class BowedString(Instrument):
 
     def __post_init__(self) -> None:
         object.__setattr__(self, 'body_eq', _body_eq_bands(self.body_eq))
+        self._validate_noise_seed(self.bow_noise_seed)
         _positive(body_size=self.body_size, attack=self.attack, release=self.release,
                   vibrato_rate=self.vibrato_rate)
         for name in ("pressure", "bow_noise", "vibrato", "level"):
@@ -254,11 +259,18 @@ class BowedString(Instrument):
             if not np.isfinite(value) or value < 0:
                 raise ValueError(f"{name} must be finite and nonnegative")
 
+    @staticmethod
+    def _validate_noise_seed(seed: int | None) -> None:
+        if seed is not None and (not isinstance(seed, int) or isinstance(seed, bool) or not 0 <= seed < 2**64):
+            raise ValueError('bow_noise_seed must be an unsigned 64-bit integer or None')
+
     def release_time(self) -> float:
         return self.release
 
     def voice(self, v: Voice, ctx: RenderContext, rng: np.random.Generator) -> np.ndarray:
         body_eq = _body_eq_bands(v.params.get('body_eq', self.body_eq))
+        noise_seed = v.params.get('bow_noise_seed', self.bow_noise_seed)
+        self._validate_noise_seed(noise_seed)
         controls = {}
         for name in ('pressure', 'bow_noise'):
             try:
@@ -282,7 +294,12 @@ class BowedString(Instrument):
                               for f, w, g in ((460, 100, 0.9), (550, 90, 0.7), (2400, 700, 1.8)))
             amp = body * np.exp(-(k - 1) / (8 + 30 * controls['pressure'] * v.vel)) / k
             y += amp * np.sin(2 * np.pi * k * phase)
-        noise = filt(rng.normal(size=n), "highpass", min(1000 / self.body_size, ctx.sr * 0.3), ctx.sr, 0.7)
+        # Consume the legacy draw even with a separate noise seed: the later
+        # amplitude phase and the caller's next voice must keep their old stream.
+        excitation = rng.normal(size=n)
+        if noise_seed is not None:
+            excitation = np.random.default_rng(noise_seed).normal(size=n)
+        noise = filt(excitation, "highpass", min(1000 / self.body_size, ctx.sr * 0.3), ctx.sr, 0.7)
         y += controls['bow_noise'] * noise
         y *= 1 + 0.025 * np.sin(2 * np.pi * 1.4 * t + rng.uniform(0, 2 * np.pi))
         attack = 0.025 if v.params.get("legato", False) else self.attack
