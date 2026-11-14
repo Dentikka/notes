@@ -280,6 +280,16 @@ The default `None` preserves the original waveform and random draw order; an
 explicit per-note `None` restores that behavior for a configured instrument.
 This is a repeatability control, not an automatic improvement in realism.
 
+`bow_noise_highpass` and `bow_noise_lowpass` optionally set noise-only filter
+corners in Hz, on the instrument or individual note. For example,
+`music.param(bow_noise_highpass=80., bow_noise_lowpass=2500.)` changes the noise
+colour without filtering the harmonic source. These causal second-order filters
+run before the voice envelope. The highpass default `None` retains the original
+body-scaled corner; lowpass `None` adds no filter. A note-level `None` restores
+each default. Explicit corners must be finite, at least 10 Hz, and no greater
+than 0.45 of the rendering sample rate; they are rejected rather than clamped.
+They do not identify a physical friction spectrum or replace the accepted presets.
+
 `Violin`, `Cello`, `BowedString` and `ModalBowedString` accept optional `body_eq`:
 up to eight `(frequency_Hz, Q, gain_dB)` peaking filters, also overridden per note
 with `music.param(body_eq=...)`. The empty default preserves the existing sound;

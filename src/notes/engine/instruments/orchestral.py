@@ -229,6 +229,9 @@ class BowedString(Instrument):
     Optional bow_noise_seed (also per note) selects only the noise realization,
     preserving pitch, amplitude modulation and the caller's random stream. None
     keeps the original shared random stream, including its exact draw order.
+    bow_noise_highpass/lowpass optionally set noise-only biquad corners in Hz,
+    also per note. None keeps the body-scaled highpass or disables the lowpass.
+    Explicit corners must be >=10 Hz and <=.45 of the rendering sample rate.
     Per-note legato=True shortens attack; vibrato/bends/pitch_points are supported.
     Optional body_eq is a tuple of (frequency_Hz, Q, gain_dB) peaking filters,
     overridden per note with the same parameter. Frequencies are absolute, not
@@ -242,6 +245,8 @@ class BowedString(Instrument):
     pressure: float = 0.55
     bow_noise: float = 0.025
     bow_noise_seed: int | None = None
+    bow_noise_highpass: float | None = None
+    bow_noise_lowpass: float | None = None
     attack: float = 0.12
     release: float = 0.18
     vibrato: float = 0.12
@@ -252,6 +257,8 @@ class BowedString(Instrument):
     def __post_init__(self) -> None:
         object.__setattr__(self, 'body_eq', _body_eq_bands(self.body_eq))
         self._validate_noise_seed(self.bow_noise_seed)
+        for name in ('bow_noise_highpass', 'bow_noise_lowpass'):
+            object.__setattr__(self, name, self._noise_corner(name, getattr(self, name)))
         _positive(body_size=self.body_size, attack=self.attack, release=self.release,
                   vibrato_rate=self.vibrato_rate)
         for name in ("pressure", "bow_noise", "vibrato", "level"):
@@ -264,6 +271,18 @@ class BowedString(Instrument):
         if seed is not None and (not isinstance(seed, int) or isinstance(seed, bool) or not 0 <= seed < 2**64):
             raise ValueError('bow_noise_seed must be an unsigned 64-bit integer or None')
 
+    @staticmethod
+    def _noise_corner(name: str, value: float | None, sr: int | None = None) -> float | None:
+        if value is None:
+            return None
+        try:
+            corner = float(value)
+        except (TypeError, ValueError) as error:
+            raise ValueError(f'{name} must be a finite corner >=10 Hz or None') from error
+        if not np.isfinite(corner) or corner < 10 or (sr is not None and corner > .45*sr):
+            raise ValueError(f'{name} must be >=10 Hz and <=.45 of the sample rate')
+        return corner
+
     def release_time(self) -> float:
         return self.release
 
@@ -271,6 +290,8 @@ class BowedString(Instrument):
         body_eq = _body_eq_bands(v.params.get('body_eq', self.body_eq))
         noise_seed = v.params.get('bow_noise_seed', self.bow_noise_seed)
         self._validate_noise_seed(noise_seed)
+        corners = {name: self._noise_corner(name, v.params.get(name, getattr(self, name)), ctx.sr)
+                   for name in ('bow_noise_highpass', 'bow_noise_lowpass')}
         controls = {}
         for name in ('pressure', 'bow_noise'):
             try:
@@ -299,7 +320,12 @@ class BowedString(Instrument):
         excitation = rng.normal(size=n)
         if noise_seed is not None:
             excitation = np.random.default_rng(noise_seed).normal(size=n)
-        noise = filt(excitation, "highpass", min(1000 / self.body_size, ctx.sr * 0.3), ctx.sr, 0.7)
+        highpass = corners['bow_noise_highpass']
+        if highpass is None:
+            highpass = min(1000 / self.body_size, ctx.sr * 0.3)
+        noise = filt(excitation, "highpass", highpass, ctx.sr, 0.7)
+        if corners['bow_noise_lowpass'] is not None:
+            noise = filt(noise, 'lowpass', corners['bow_noise_lowpass'], ctx.sr, 0.7)
         y += controls['bow_noise'] * noise
         y *= 1 + 0.025 * np.sin(2 * np.pi * 1.4 * t + rng.uniform(0, 2 * np.pi))
         attack = 0.025 if v.params.get("legato", False) else self.attack
