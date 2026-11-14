@@ -9,6 +9,14 @@ from notes.ears.inharmonicity import InharmonicPartial, StringInharmonicity, str
 from notes.ears.mert import MertEar
 from notes.ears.note_profile import PartialDecay, harmonic_shape_distance, infer_expression_points, partial_decays
 from notes.ears.polyphonic import TemplateTrack, notes_from_templates, template_track
+from notes.ears.texture import (
+    InterharmonicEnergy,
+    RoughnessEstimate,
+    TextureFitResult,
+    estimate_roughness,
+    fit_roughness,
+    interharmonic_energy,
+)
 from notes.ears.transcribe import tracked_music
 from notes.ears.tuning import KnownNoteTuning, known_note_tuning
 from notes.ears.vocab import TEMPLATES, VOCABULARY
@@ -24,9 +32,12 @@ __all__ = [
     "Ear",
     "FitResult",
     "InharmonicPartial",
+    "InterharmonicEnergy",
     "KnownNoteTuning",
     "MertEar",
     "PartialDecay",
+    "RoughnessEstimate",
+    "TextureFitResult",
     "StringInharmonicity",
     "Tag",
     "TemplateTrack",
@@ -35,12 +46,15 @@ __all__ = [
     "fit_loss",
     "fetch_aesthetics",
     "fit_reference",
+    "fit_roughness",
+    "estimate_roughness",
     "format_comparison",
     "format_report",
     "listening",
     "infer_expression_points",
     "harmonic_shape_distance",
     "known_note_tuning",
+    "interharmonic_energy",
     "load",
     "notes_from_templates",
     "partial_decays",

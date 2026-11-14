@@ -256,6 +256,15 @@ def _audit_note(args: argparse.Namespace) -> int:
                 for name, profile in zip(("reference", "render"), profiles, strict=True)}}
             for start, end in args.decay_window
         ]
+    if args.texture_window:
+        from notes.ears.texture import interharmonic_energy
+
+        textures = [interharmonic_energy(load(path, sr=rate).mean(axis=0), rate, expected,
+                    start=args.texture_window[0], end=args.texture_window[1], band=tuple(args.texture_band))
+                    for path in (reference, render)]
+        report["texture"] = {"definition": "interharmonic energy includes modulation and leakage; not friction alone",
+            "reference": asdict(textures[0]), "render": asdict(textures[1]),
+            "difference_db": textures[1].db-textures[0].db}
     output.parent.mkdir(parents=True, exist_ok=True)
     _write_json(output, report)
     print(json.dumps(report, indent=2))
@@ -502,6 +511,10 @@ def main(argv: list[str] | None = None) -> int:
                        help="tracked uses moving, wider partial bands; same mode for both notes")
     audit.add_argument("--decay-window", type=float, nargs=2, action="append", metavar=("START", "END"),
                        help="optional onset-relative decay window in seconds; repeat to compare attack and sustain")
+    audit.add_argument("--texture-window", type=float, nargs=2, metavar=("START", "END"),
+                       help="optional absolute clip-clock window for residual-band energy")
+    audit.add_argument("--texture-band", type=float, nargs=2, default=(1000., 10000.), metavar=("LOW", "HIGH"),
+                       help="spectral band in Hz for --texture-window")
     audit.add_argument("-o", "--out", required=True, help="JSON diagnostic report")
     audit.set_defaults(func=_audit_note)
     trans = sub.add_parser("transcribe", help="extract notes from an isolated stem and render a reconstruction")
