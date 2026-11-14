@@ -243,10 +243,11 @@ def _audit_note(args: argparse.Namespace) -> int:
     expected = midi_to_hz(parse_pitch(args.pitch), args.a4)
     rate = 22050
     profiles = [profile_note(load(path, sr=rate).mean(axis=0), rate, expected,
-                             harmonics=args.harmonics) for path in (reference, render)]
+                             harmonics=args.harmonics, partial_mode=args.partial_mode) for path in (reference, render)]
     report = {"status": "diagnostic-only", "scope": "isolated known-pitch notes",
               "reference": str(reference), "render": str(render), "expected_f0": expected,
               "reference_f0": profiles[0].f0, "render_f0": profiles[1].f0,
+              "partial_mode": args.partial_mode,
               "git_revision": _git_revision(), **compare_profiles(*profiles)}
     if args.decay_window:
         report["decay_windows"] = [
@@ -497,6 +498,8 @@ def main(argv: list[str] | None = None) -> int:
     audit.add_argument("--pitch", required=True, help="known note name, e.g. A2")
     audit.add_argument("--a4", type=float, default=440)
     audit.add_argument("--harmonics", type=int, default=20)
+    audit.add_argument("--partial-mode", choices=("fixed", "tracked"), default="fixed",
+                       help="tracked uses moving, wider partial bands; same mode for both notes")
     audit.add_argument("--decay-window", type=float, nargs=2, action="append", metavar=("START", "END"),
                        help="optional onset-relative decay window in seconds; repeat to compare attack and sustain")
     audit.add_argument("-o", "--out", required=True, help="JSON diagnostic report")
