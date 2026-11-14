@@ -339,6 +339,16 @@ not an exact implementation of that paper. No recorded excitation or measured
 response is used. This source does not change the existing instrument presets
 and has not established realism across notes, dynamics, or instruments.
 
+Optional `roughness`, `grain_length` (metres), and `grain_seed` add a designed
+spatial variation of its yield strength. The material coordinate advances only
+with plastic sliding, and revisiting it yields the same value. No noise is mixed
+into the output. `roughness=0` preserves the previous wave. Diagnostics expose
+the final material coordinate and largest step relative to a grain cell, so
+numerical resolution can be checked separately from acoustic similarity.
+This controls texture, not a calibrated realistic preset: a two-note MF fit
+overstated the residual energy on another A-string note by 14–15 dB even while
+MERT increased. The accepted `Violin` and `Cello` are unchanged.
+
 Run `notes render examples/instrument_palette.py -o palette --spectrogram` for a
 palette including electric/acoustic guitars, bass and rock drums. The example's
 `build_song(name)` also exposes each instrument separately.
