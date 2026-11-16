@@ -18,6 +18,28 @@ def _positive(**values: float) -> None:
             raise ValueError(f"{name} must be finite and positive")
 
 
+def _hammer_speed_points(value: object) -> tuple[tuple[float, float], ...]:
+    """Explicit monotone MIDI-velocity to initial-speed calibration; empty is legacy."""
+    if not isinstance(value, (tuple, list)) or len(value) > 64:
+        raise ValueError('hammer_speed_points needs at most 64 velocity/speed rows')
+    result = []
+    for row in value:
+        if not isinstance(row, (tuple, list)) or len(row) != 2:
+            raise ValueError('hammer_speed_points rows need velocity and speed')
+        try:
+            velocity, speed = (float(x) for x in row)
+        except (TypeError, ValueError) as error:
+            raise ValueError('hammer_speed_points needs finite velocity/speed values') from error
+        if not np.isfinite((velocity, speed)).all() or not 0 <= velocity <= 1 or not 0 <= speed <= 4:
+            raise ValueError('hammer_speed_points needs velocity in [0,1] and speed in [0,4]')
+        if result and (velocity <= result[-1][0] or speed < result[-1][1]):
+            raise ValueError('hammer_speed_points velocities must increase and speeds must not decrease')
+        result.append((velocity, speed))
+    if result and (len(result) < 2 or result[0][0] != 0 or result[-1][0] != 1):
+        raise ValueError('hammer_speed_points must cover velocity 0 through 1')
+    return tuple(result)
+
+
 def _body_eq_bands(value: object) -> tuple[tuple[float, float, float], ...]:
     """Validate small, explicit (Hz, Q, dB) equalizer recipes, including JSON lists."""
     if not isinstance(value, (list, tuple)) or len(value) > 8:
@@ -91,6 +113,10 @@ class Piano(Instrument):
     symmetrically detuned around each mode by up to detune cents. None preserves
     the original unequal two-component readout. This is an equivalent-string
     readout, not a new coupled-string hammer simulation. Notes may override it.
+    Optional hammer_speed_points maps velocity 0..1 to initial speed 0..4 model
+    m/s, with linear interpolation. Empty retains the original affine mapping.
+    It changes nonlinear felt contact, not output gain. Per-note hammer_speed
+    overrides the curve; None restores the original mapping for that note.
     legacy preserves the original renderer.
     """
 
@@ -107,16 +133,20 @@ class Piano(Instrument):
     release: float = 0.18
     level: float = 0.45
     partial_gain_points: tuple[tuple[float, ...], ...] = ()
+    hammer_speed_points: tuple[tuple[float, float], ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, 'partial_gain_points', _partial_gain_points(self.partial_gain_points))
         object.__setattr__(self, 'unison_strings', _unison_strings(self.unison_strings))
+        object.__setattr__(self, 'hammer_speed_points', _hammer_speed_points(self.hammer_speed_points))
         if self.model not in ("legacy", "soundboard", "hammer", "hammer_damped"):
             raise ValueError("model must be legacy, soundboard, hammer or hammer_damped")
         if self.partial_gain_points and self.model not in ('hammer', 'hammer_damped'):
             raise ValueError('partial_gain_points requires hammer or hammer_damped piano')
         if self.unison_strings is not None and self.model not in ('hammer', 'hammer_damped'):
             raise ValueError('unison_strings requires hammer or hammer_damped piano')
+        if self.hammer_speed_points and self.model not in ('hammer', 'hammer_damped'):
+            raise ValueError('hammer_speed_points requires hammer or hammer_damped piano')
         if not np.isfinite(self.attack_presence) or not 0 <= self.attack_presence <= 1:
             raise ValueError("attack_presence must be between 0 and 1")
         if not np.isfinite(self.hammer_mass_scale) or not 0.25 <= self.hammer_mass_scale <= 4:
@@ -133,10 +163,13 @@ class Piano(Instrument):
     def voice(self, v: Voice, ctx: RenderContext, rng: np.random.Generator) -> np.ndarray:
         points = _partial_gain_points(v.params.get('partial_gain_points', self.partial_gain_points))
         strings = _unison_strings(v.params.get('unison_strings', self.unison_strings))
+        speeds = _hammer_speed_points(v.params.get('hammer_speed_points', self.hammer_speed_points))
         if points and self.model not in ('hammer', 'hammer_damped'):
             raise ValueError('partial_gain_points requires hammer or hammer_damped piano')
         if strings is not None and self.model not in ('hammer', 'hammer_damped'):
             raise ValueError('unison_strings requires hammer or hammer_damped piano')
+        if (speeds or v.params.get('hammer_speed') is not None) and self.model not in ('hammer', 'hammer_damped'):
+            raise ValueError('hammer_speed requires hammer or hammer_damped piano')
         if self.model in ("hammer", "hammer_damped"):
             from notes.engine.hammer import struck_string
 
@@ -154,6 +187,11 @@ class Piano(Instrument):
             readout_options = {'partial_gain_points': points} if points else {}
             if strings is not None:
                 readout_options['unison_strings'] = strings
+            if 'hammer_speed' in v.params:
+                if v.params['hammer_speed'] is not None:
+                    readout_options['hammer_speed'] = v.params['hammer_speed']
+            elif speeds:
+                readout_options['hammer_speed'] = float(np.interp(v.vel, *np.asarray(speeds).T))
             y = struck_string(v.freq, n, ctx.sr, v.vel, brightness=self.brightness,
                               stiffness=stiffness, sustain=self.sustain, detune=self.detune,
                               radiation=self.model == "hammer_damped", attack_presence=self.attack_presence,

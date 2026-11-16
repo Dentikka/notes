@@ -295,6 +295,17 @@ add separate coupled hammer/string states; it is a controllable readout model.
 Nonempty settings on legacy/soundboard pianos and explicit unisons beyond the
 renderable frequency band are rejected. No recorded phases are used.
 
+Contact pianos also accept optional `hammer_speed_points=((0.,0.), (1.,4.))`:
+monotone (normalized MIDI velocity, initial hammer speed in model m/s) points.
+At most 64 points must cover velocity 0..1; speed is in 0..4 and interpolates
+linearly. Empty preserves the original `0.6 + 3.4*velocity` mapping exactly.
+This changes the nonlinear impact and its spectrum, rather than multiplying
+the final waveform. A note can supply a different curve or an empty reset.
+Per-note `hammer_speed` overrides the curve; `None` restores the original
+mapping. Velocity zero is silent even with an explicit speed. These controls
+are only supported by hammer/hammer_damped; they are calibration controls,
+not a claim of a universally correct velocity response or measured hammer speed.
+
 `BowedString`, `Violin` and `Cello` accept per-note `pressure` and `bow_noise`,
 for example `music.param(pressure=.22, bow_noise=.018)`. Values must be finite
 and nonnegative; zero is allowed. They override the corresponding preset fields,
