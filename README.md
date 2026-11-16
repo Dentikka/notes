@@ -255,6 +255,19 @@ CLAP recognises every synth preset and, in a produced context, every guitar vari
 
 ## Piano and bowed strings
 
+Known performed parts can be read without transcription or extra dependencies:
+`from notes.performance import read_midi_performance`. The returned `notes` keep
+`onset`, `key_offset` and effective binary-pedal `offset` in seconds, raw MIDI
+velocity/release velocity, pitch and channel. SMF 0/1 PPQN, global tempo changes,
+running status, channel-local sustain (CC64) and sostenuto (CC66) are supported.
+All controls are retained; soft pedal (CC67) is not modeled. Pedal positions use
+the threshold 64, not continuous half-pedaling. A note still held by a pedal at
+file end has `damper_truncated=True`. Unmatched keys, SMPTE/format 2 files,
+noncentral pitch bends and channel-mode reset/termination are rejected.
+Repeated same-key overlaps pair FIFO; equal-tick cross-track ties use file order.
+These gates describe an evaluation performance, not measured acoustic decay.
+They do not add resonance or re-pedaling to the synthesizer.
+
 `Piano()` synthesizes decaying inharmonic string partials, unison beating and a
 velocity-dependent hammer spectrum. `music.param(pedal=True)` preserves each note's
 natural decay after key release (a per-note pedal, not continuous pedal automation).
