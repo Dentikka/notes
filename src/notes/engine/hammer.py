@@ -16,7 +16,10 @@ def struck_string(freq: float, n: int, sr: int, velocity: float, *,
                   sustain: float = 8.0, detune: float = 1.4, radiation: bool = False,
                   attack_presence: float = 0.0, hammer_mass_scale: float = 1.0,
                   partial_gain_points: tuple[tuple[float, ...], ...] = (),
-                  unison_strings: int | None = None, hammer_speed: float | None = None) -> np.ndarray:
+                  unison_strings: int | None = None, hammer_speed: float | None = None,
+                  felt_stiffness_scale: float = 1.0, contact_oversample: int = 1,
+                  radiation_compensation: float = 0.0,
+                  _audit: dict[str, float] | None = None) -> np.ndarray:
     """Return bridge-velocity-like output following one felt hammer impact.
 
     Frequencies and stiffness define the modes, velocity the initial hammer speed.
@@ -29,9 +32,23 @@ def struck_string(freq: float, n: int, sr: int, velocity: float, *,
     readout approximation does not simulate separate coupled contact states.
     hammer_speed optionally sets initial hammer speed in model m/s, from 0 to 4.
     None retains 0.6 + 3.4*velocity; velocity zero remains a silent note-off.
+    felt_stiffness_scale multiplies the compression-force coefficient. Optional
+    contact_oversample refines only integration, keeping the output mode band.
+    radiation_compensation restores a fraction of synthetic modal readout power
+    removed by the register tap: one scalar from the impact state, not a body
+    model, recorded response, change of modal ratios or altered contact force.
     """
     if not np.isfinite(hammer_mass_scale) or not 0.25 <= hammer_mass_scale <= 4:
         raise ValueError("hammer_mass_scale must be between 0.25 and 4")
+    if not np.isfinite(felt_stiffness_scale) or not .25 <= felt_stiffness_scale <= 16:
+        raise ValueError('felt_stiffness_scale must be between .25 and 16')
+    if (isinstance(contact_oversample, bool) or not isinstance(contact_oversample, int)
+            or not 1 <= contact_oversample <= 16):
+        raise ValueError('contact_oversample must be an integer from 1 to 16')
+    if not np.isfinite(radiation_compensation) or not 0 <= radiation_compensation <= 1:
+        raise ValueError('radiation_compensation must be between 0 and 1')
+    if radiation_compensation and not radiation:
+        raise ValueError('radiation_compensation requires radiation=True')
     if hammer_speed is not None:
         try:
             hammer_speed = float(hammer_speed)
@@ -48,7 +65,7 @@ def struck_string(freq: float, n: int, sr: int, velocity: float, *,
         return np.zeros(0)
     if velocity <= 0:
         return np.zeros(n)
-    factor = max(1, int(np.ceil(176400 / sr)))
+    factor = max(1, int(np.ceil(176400 / sr)))*contact_oversample
     rate = sr * factor
     dt = 1 / rate
     k = np.arange(1, min(65, int(0.40 * sr / freq) + 1), dtype=float)
@@ -75,8 +92,10 @@ def struck_string(freq: float, n: int, sr: int, velocity: float, *,
     hammer_mass *= hammer_mass_scale
     # Force constant has units for the chosen power law; hardness sets felt stiffness.
     felt = 2.0e9 * (0.45 + brightness)
+    felt *= felt_stiffness_scale
     exponent = 2.3
     hammer_x, hammer_v = 0.0, 0.6 + 3.4 * velocity if hammer_speed is None else hammer_speed
+    initial_hammer_speed = hammer_v
     q, speed = np.zeros(len(k)), np.zeros(len(k))
     c, s = np.cos(omega * dt), np.sin(omega * dt)
     t60 = sustain * (220 / freq) ** 0.28 / (1 + 0.045 * (k - 1) ** 1.2)
@@ -112,6 +131,26 @@ def struck_string(freq: float, n: int, sr: int, velocity: float, *,
             stop = i + 1
             break
     # Decimate only the integrated contact. Pad with free ringing to avoid an edge transient.
+    compensation = 1.
+    if (radiation_compensation or _audit is not None) and register:
+        state_power = speed*speed+(omega*q)**2
+        original_power = float(np.sum(np.sin(np.pi*k*.965)**2*state_power))
+        filtered_power = float(np.sum(bridge*bridge*state_power))
+        if filtered_power > np.finfo(float).tiny:
+            unit_compensation = np.sqrt(original_power/filtered_power)
+            compensation = unit_compensation**radiation_compensation
+        else:
+            unit_compensation = 1.
+    else:
+        unit_compensation = 1.
+    if _audit is not None:
+        # Diagnostic bookkeeping only, never used to alter the force or state.
+        # A decrease of total energy includes both modeled damping and numerical
+        # error; this does not identify all missing energy as physical loss.
+        _audit.update(contact_seconds=stop/rate, initial_energy=.5*hammer_mass*initial_hammer_speed**2,
+            string_energy=.5*mass*float(np.sum(speed*speed+(omega*q)**2)),
+            hammer_energy=.5*hammer_mass*hammer_v**2, readout_power_gain=float(unit_compensation),
+            separated=float(touched and compression <= 0))
     contact = contact[:stop]
     total = n * factor
     end = min(total, stop + 64 * factor)
@@ -153,4 +192,5 @@ def struck_string(freq: float, n: int, sr: int, velocity: float, *,
         if controls is not None and number < controls.shape[1]:
             readout *= np.interp(stop/rate+times, controls[:, 0], controls[:, number])
         y[count:] += readout * ringing * np.exp(-np.log(1000)*times/decay)
-    return y * 0.11
+    output = y*0.11
+    return output*compensation if compensation != 1. else output
