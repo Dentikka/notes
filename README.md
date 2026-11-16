@@ -306,6 +306,21 @@ mapping. Velocity zero is silent even with an explicit speed. These controls
 are only supported by hammer/hammer_damped; they are calibration controls,
 not a claim of a universally correct velocity response or measured hammer speed.
 
+Contact pianos accept `felt_stiffness_scale=.25..16`, also per note, to multiply
+the felt compression-force coefficient independently of string bending stiffness.
+`contact_oversample=1..16` refines only contact integration; its default 1 keeps
+the original >=176.4 kHz rate and output-dependent mode band. Increasing it does
+not add modes or change the output sample rate. Check convergence for harder felt.
+Both controls default to the old behavior and require contact piano models.
+
+For `hammer_damped`, optional `radiation_compensation=0..1` restores a fraction
+of power removed by the synthetic register readout. It uses modal amplitudes at
+first hammer separation and compares the original versus filtered bridge tap.
+The resulting single scalar multiplies the whole voice: relative partials,
+frequency, damping and contact forces stay the same. It is not a physical
+soundboard radiation model or an energy-conservation guarantee. The default 0
+preserves the accepted source; notes may override all three controls.
+
 `BowedString`, `Violin` and `Cello` accept per-note `pressure` and `bow_noise`,
 for example `music.param(pressure=.22, bow_noise=.018)`. Values must be finite
 and nonnegative; zero is allowed. They override the corresponding preset fields,

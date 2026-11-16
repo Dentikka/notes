@@ -117,6 +117,10 @@ class Piano(Instrument):
     m/s, with linear interpolation. Empty retains the original affine mapping.
     It changes nonlinear felt contact, not output gain. Per-note hammer_speed
     overrides the curve; None restores the original mapping for that note.
+    felt_stiffness_scale changes felt contact hardness, independently of bending
+    stiffness. contact_oversample refines integration without changing modes.
+    radiation_compensation is a scalar from synthetic impact-state readout power;
+    it preserves relative partials and does not identify physical radiation.
     legacy preserves the original renderer.
     """
 
@@ -134,6 +138,9 @@ class Piano(Instrument):
     level: float = 0.45
     partial_gain_points: tuple[tuple[float, ...], ...] = ()
     hammer_speed_points: tuple[tuple[float, float], ...] = ()
+    felt_stiffness_scale: float = 1.0
+    contact_oversample: int = 1
+    radiation_compensation: float = 0.0
 
     def __post_init__(self) -> None:
         object.__setattr__(self, 'partial_gain_points', _partial_gain_points(self.partial_gain_points))
@@ -147,6 +154,12 @@ class Piano(Instrument):
             raise ValueError('unison_strings requires hammer or hammer_damped piano')
         if self.hammer_speed_points and self.model not in ('hammer', 'hammer_damped'):
             raise ValueError('hammer_speed_points requires hammer or hammer_damped piano')
+        self._contact_controls(self.felt_stiffness_scale, self.contact_oversample, self.radiation_compensation)
+        if ((self.felt_stiffness_scale != 1 or self.contact_oversample != 1)
+                and self.model not in ('hammer', 'hammer_damped')):
+            raise ValueError('felt_stiffness_scale/contact_oversample require contact piano')
+        if self.radiation_compensation and self.model != 'hammer_damped':
+            raise ValueError('radiation_compensation requires hammer_damped piano')
         if not np.isfinite(self.attack_presence) or not 0 <= self.attack_presence <= 1:
             raise ValueError("attack_presence must be between 0 and 1")
         if not np.isfinite(self.hammer_mass_scale) or not 0.25 <= self.hammer_mass_scale <= 4:
@@ -160,10 +173,27 @@ class Piano(Instrument):
     def release_time(self) -> float:
         return max(self.release, self.sustain)
 
+    @staticmethod
+    def _contact_controls(felt: float, oversample: int, compensation: float) -> None:
+        if not np.isfinite(felt) or not .25 <= felt <= 16:
+            raise ValueError('felt_stiffness_scale must be between .25 and 16')
+        if isinstance(oversample, bool) or not isinstance(oversample, int) or not 1 <= oversample <= 16:
+            raise ValueError('contact_oversample must be an integer from 1 to 16')
+        if not np.isfinite(compensation) or not 0 <= compensation <= 1:
+            raise ValueError('radiation_compensation must be between 0 and 1')
+
     def voice(self, v: Voice, ctx: RenderContext, rng: np.random.Generator) -> np.ndarray:
         points = _partial_gain_points(v.params.get('partial_gain_points', self.partial_gain_points))
         strings = _unison_strings(v.params.get('unison_strings', self.unison_strings))
         speeds = _hammer_speed_points(v.params.get('hammer_speed_points', self.hammer_speed_points))
+        felt = v.params.get('felt_stiffness_scale', self.felt_stiffness_scale)
+        oversample = v.params.get('contact_oversample', self.contact_oversample)
+        compensation = v.params.get('radiation_compensation', self.radiation_compensation)
+        self._contact_controls(felt, oversample, compensation)
+        if (felt != 1 or oversample != 1) and self.model not in ('hammer', 'hammer_damped'):
+            raise ValueError('felt_stiffness_scale/contact_oversample require contact piano')
+        if compensation and self.model != 'hammer_damped':
+            raise ValueError('radiation_compensation requires hammer_damped piano')
         if points and self.model not in ('hammer', 'hammer_damped'):
             raise ValueError('partial_gain_points requires hammer or hammer_damped piano')
         if strings is not None and self.model not in ('hammer', 'hammer_damped'):
@@ -192,6 +222,12 @@ class Piano(Instrument):
                     readout_options['hammer_speed'] = v.params['hammer_speed']
             elif speeds:
                 readout_options['hammer_speed'] = float(np.interp(v.vel, *np.asarray(speeds).T))
+            if felt != 1:
+                readout_options['felt_stiffness_scale'] = felt
+            if oversample != 1:
+                readout_options['contact_oversample'] = oversample
+            if compensation:
+                readout_options['radiation_compensation'] = compensation
             y = struck_string(v.freq, n, ctx.sr, v.vel, brightness=self.brightness,
                               stiffness=stiffness, sustain=self.sustain, detune=self.detune,
                               radiation=self.model == "hammer_damped", attack_presence=self.attack_presence,
