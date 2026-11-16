@@ -9,6 +9,7 @@ from scipy.signal import lfilter
 from notes.engine.articulation import _partial_gain_points, _unison_strings, pitch_curve
 from notes.engine.base import Instrument, RenderContext, Voice
 from notes.engine.dsp import adsr, biquad, filt, vel_gain
+from notes.engine.piano_impact import _impact_controls, impact_duration, piano_impact
 from notes.engine.registry import register_instrument
 
 
@@ -121,6 +122,10 @@ class Piano(Instrument):
     stiffness. contact_oversample refines integration without changing modes.
     radiation_compensation is a scalar from synthetic impact-state readout power;
     it preserves relative partials and does not identify physical radiation.
+    Optional impact_gain adds a designed nonharmonic modal impact after string
+    damping. It is not measured action noise or a coupled soundboard model.
+    impact_decay is T60 at 200 Hz; color, velocity power and delay are independent.
+    All five controls may be overridden on notes; zero gain keeps the old source.
     legacy preserves the original renderer.
     """
 
@@ -141,6 +146,11 @@ class Piano(Instrument):
     felt_stiffness_scale: float = 1.0
     contact_oversample: int = 1
     radiation_compensation: float = 0.0
+    impact_gain: float = 0.0
+    impact_decay: float = .18
+    impact_color: float = .5
+    impact_velocity_power: float = 1.0
+    impact_delay: float = 0.0
 
     def __post_init__(self) -> None:
         object.__setattr__(self, 'partial_gain_points', _partial_gain_points(self.partial_gain_points))
@@ -155,6 +165,10 @@ class Piano(Instrument):
         if self.hammer_speed_points and self.model not in ('hammer', 'hammer_damped'):
             raise ValueError('hammer_speed_points requires hammer or hammer_damped piano')
         self._contact_controls(self.felt_stiffness_scale, self.contact_oversample, self.radiation_compensation)
+        self._impact_settings(self.impact_gain, self.impact_decay, self.impact_color,
+                              self.impact_velocity_power, self.impact_delay)
+        if self.impact_gain and self.model not in ('hammer', 'hammer_damped'):
+            raise ValueError('impact_gain requires contact piano')
         if ((self.felt_stiffness_scale != 1 or self.contact_oversample != 1)
                 and self.model not in ('hammer', 'hammer_damped')):
             raise ValueError('felt_stiffness_scale/contact_oversample require contact piano')
@@ -171,7 +185,29 @@ class Piano(Instrument):
                 raise ValueError(f"{name} must be finite and nonnegative")
 
     def release_time(self) -> float:
-        return max(self.release, self.sustain)
+        tail = max(self.release, self.sustain)
+        if self.impact_gain:
+            tail = max(tail, impact_duration(self.impact_decay, self.impact_delay))
+        return tail
+
+    @staticmethod
+    def _impact_settings(gain: float, decay: float, color: float, power: float, delay: float) -> None:
+        _impact_controls(decay, color, power, delay)
+        if not np.isfinite(gain) or not 0 <= gain <= 1:
+            raise ValueError('impact_gain must be finite and in [0,1]')
+
+    def _with_impact(self, wave: np.ndarray, v: Voice, ctx: RenderContext, rng: np.random.Generator,
+                     controls: dict[str, float]) -> np.ndarray:
+        if controls['gain'] == 0 or v.vel == 0:
+            return self.level*wave
+        n = max(len(wave), ctx.samples(impact_duration(controls['decay'], controls['delay'])))
+        if n > ctx.samples(v.dur+self.release_time())+1:
+            raise ValueError('impact tail exceeds configured release time; increase Piano sustain/release')
+        impact = piano_impact(n, ctx.sr, v.vel, rng, decay=controls['decay'], color=controls['color'],
+                              velocity_power=controls['power'], delay=controls['delay'])
+        if n > len(wave):
+            wave = np.pad(wave, (0, n-len(wave)))
+        return self.level*(wave+controls['gain']*impact)
 
     @staticmethod
     def _contact_controls(felt: float, oversample: int, compensation: float) -> None:
@@ -190,6 +226,12 @@ class Piano(Instrument):
         oversample = v.params.get('contact_oversample', self.contact_oversample)
         compensation = v.params.get('radiation_compensation', self.radiation_compensation)
         self._contact_controls(felt, oversample, compensation)
+        impact = {name: v.params.get(key, getattr(self, key)) for name, key in (
+            ('gain', 'impact_gain'), ('decay', 'impact_decay'), ('color', 'impact_color'),
+            ('power', 'impact_velocity_power'), ('delay', 'impact_delay'))}
+        self._impact_settings(impact['gain'], impact['decay'], impact['color'], impact['power'], impact['delay'])
+        if impact['gain'] and self.model not in ('hammer', 'hammer_damped'):
+            raise ValueError('impact_gain requires contact piano')
         if (felt != 1 or oversample != 1) and self.model not in ('hammer', 'hammer_damped'):
             raise ValueError('felt_stiffness_scale/contact_oversample require contact piano')
         if compensation and self.model != 'hammer_damped':
@@ -204,7 +246,7 @@ class Piano(Instrument):
             from notes.engine.hammer import struck_string
 
             pedal = bool(v.params.get("pedal", False))
-            tail = self.release_time() if pedal else self.release
+            tail = max(self.release, self.sustain) if pedal else self.release
             n = ctx.samples(v.dur + tail)
             stiffness = self.stiffness
             if "stiffness" in v.params:
@@ -238,7 +280,7 @@ class Piano(Instrument):
             count = min(n, ctx.samples(0.01))
             if count:
                 y[-count:] *= np.linspace(1, 0, count)
-            return self.level * y
+            return self._with_impact(y, v, ctx, rng, impact)
         if self.model == "soundboard":
             return self._soundboard(v, ctx, rng)
         pedal = bool(v.params.get("pedal", False))
