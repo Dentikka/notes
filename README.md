@@ -41,6 +41,8 @@ song.render("song.wav")
   tempo map. Every event carries its structural path (`chorus/…`). Instruments and effects
   are plain `{"type": …, …params}` specs, so other back-ends (MIDI, SoundFonts, DAWs) can
   consume the same file. `Score.to_json()` / `from_json()` round-trip exactly.
+  The optional `seed_pitch_int` event marker preserves a builtin integer pitch's
+  RNG representation; old unmarked JSON keeps its previous float interpretation.
 - **Engine** (`notes.engine`): each note becomes a voice, the voices are summed per track,
   run through the instrument's inserts, panned, run through the track's effects and mixed.
   The master is normalised to a loudness target (BS.1770) and peak-limited. Each voice's
@@ -320,6 +322,18 @@ The resulting single scalar multiplies the whole voice: relative partials,
 frequency, damping and contact forces stay the same. It is not a physical
 soundboard radiation model or an energy-conservation guarantee. The default 0
 preserves the accepted source; notes may override all three controls.
+
+Optional `impact_gain=0..1` on contact pianos adds a procedurally generated
+nonharmonic attack. A positive synthetic 1 ms pulse excites 48 designed damped
+modes below 1350 Hz (and below .42 of the sample rate). No recorded noise or
+measured response is used. The component is added after string damping and does
+not alter string contact. `impact_decay=.03..0.5` is T60 at 200 Hz;
+`impact_color=-1..2`, `impact_velocity_power=0..2` and `impact_delay=0..0.06`
+control spectral tilt, MIDI-velocity response and causal delay. All accept note
+overrides. The default gain 0 leaves the original audio and RNG stream unchanged.
+Enabled tails are declared by the instrument; a note override exceeding that
+allocation raises rather than silently truncating. This is an empirical output
+component, not an identified or energy-coupled model of the piano mechanism.
 
 `BowedString`, `Violin` and `Cello` accept per-note `pressure` and `bow_noise`,
 for example `music.param(pressure=.22, bow_noise=.018)`. Values must be finite
