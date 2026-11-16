@@ -16,7 +16,7 @@ def struck_string(freq: float, n: int, sr: int, velocity: float, *,
                   sustain: float = 8.0, detune: float = 1.4, radiation: bool = False,
                   attack_presence: float = 0.0, hammer_mass_scale: float = 1.0,
                   partial_gain_points: tuple[tuple[float, ...], ...] = (),
-                  unison_strings: int | None = None) -> np.ndarray:
+                  unison_strings: int | None = None, hammer_speed: float | None = None) -> np.ndarray:
     """Return bridge-velocity-like output following one felt hammer impact.
 
     Frequencies and stiffness define the modes, velocity the initial hammer speed.
@@ -27,9 +27,18 @@ def struck_string(freq: float, n: int, sr: int, velocity: float, *,
     unison_strings optionally uses 1..3 equally weighted free-ring components
     from the same impact state. None keeps the original unequal pair. This
     readout approximation does not simulate separate coupled contact states.
+    hammer_speed optionally sets initial hammer speed in model m/s, from 0 to 4.
+    None retains 0.6 + 3.4*velocity; velocity zero remains a silent note-off.
     """
     if not np.isfinite(hammer_mass_scale) or not 0.25 <= hammer_mass_scale <= 4:
         raise ValueError("hammer_mass_scale must be between 0.25 and 4")
+    if hammer_speed is not None:
+        try:
+            hammer_speed = float(hammer_speed)
+        except (TypeError, ValueError) as error:
+            raise ValueError('hammer_speed must be finite and between 0 and 4') from error
+        if not np.isfinite(hammer_speed) or not 0 <= hammer_speed <= 4:
+            raise ValueError('hammer_speed must be finite and between 0 and 4')
     points = _partial_gain_points(partial_gain_points)
     controls = np.asarray(points) if points else None
     strings = _unison_strings(unison_strings)
@@ -67,7 +76,7 @@ def struck_string(freq: float, n: int, sr: int, velocity: float, *,
     # Force constant has units for the chosen power law; hardness sets felt stiffness.
     felt = 2.0e9 * (0.45 + brightness)
     exponent = 2.3
-    hammer_x, hammer_v = 0.0, 0.6 + 3.4 * velocity
+    hammer_x, hammer_v = 0.0, 0.6 + 3.4 * velocity if hammer_speed is None else hammer_speed
     q, speed = np.zeros(len(k)), np.zeros(len(k))
     c, s = np.cos(omega * dt), np.sin(omega * dt)
     t60 = sustain * (220 / freq) ** 0.28 / (1 + 0.045 * (k - 1) ** 1.2)
