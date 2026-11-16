@@ -31,6 +31,29 @@ _VIBRATO_FADE_S = 0.3
 _RATE_WANDER = 0.08
 
 
+def _partial_gain_points(value: object) -> tuple[tuple[float, ...], ...]:
+    """Rows of seconds and linear mode gains; shared by harmonic/modal readouts."""
+    if not isinstance(value, (tuple, list)) or len(value) > 512:
+        raise ValueError('partial_gain_points needs at most 512 time/gain rows')
+    if not value:
+        return ()
+    try:
+        points = np.asarray(value, dtype=float)
+    except (TypeError, ValueError) as error:
+        raise ValueError('partial_gain_points needs rectangular finite time/gain rows') from error
+    if (points.ndim != 2 or not 2 <= points.shape[1] <= 81 or not np.isfinite(points).all()
+            or points[0, 0] < 0 or np.any(np.diff(points[:, 0]) <= 0)
+            or np.any(points[:, 1:] < 0) or np.any(points[:, 1:] > 16)):
+        raise ValueError('partial_gain_points needs increasing nonnegative seconds and 1..80 gains in [0, 16]')
+    return tuple(tuple(float(x) for x in row) for row in points)
+
+
+def _unison_strings(value: object) -> int | None:
+    if value is not None and (not isinstance(value, int) or isinstance(value, bool) or value not in (1, 2, 3)):
+        raise ValueError('unison_strings must be None or an integer from 1 to 3')
+    return value
+
+
 def expression_curve(params: Mapping[str, Any], n: int, sr: int) -> np.ndarray | None:
     """Optional audio gain curve: (seconds from onset, linear gain in [0, 1]).
 
