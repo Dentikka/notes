@@ -290,6 +290,28 @@ each default. Explicit corners must be finite, at least 10 Hz, and no greater
 than 0.45 of the rendering sample rate; they are rejected rather than clamped.
 They do not identify a physical friction spectrum or replace the accepted presets.
 
+`partial_gain_points` optionally controls harmonic amplitudes in `BowedString`,
+`Violin` and `Cello`, including per-note overrides. Rows contain seconds followed
+by linear gains for harmonics 1..H. For example,
+`music.param(partial_gain_points=((0., 1., .5), (.4, 1., 1.5)))` changes only the
+second harmonic over time. Up to 512 rows and 80 gains per row are accepted;
+times must be nonnegative and increasing, gains finite in [0,16]. Gains
+interpolate linearly, hold at endpoints, and precede the common voice envelope
+and body EQ. Unspecified harmonics stay at gain 1; noise, pitch and random draws
+are unchanged. The empty default keeps the original source, and an empty note
+override disables an instrument curve. These scalar controls contain no recorded
+carriers or phases and do not themselves establish a realistic reference match.
+
+`notes.ears.partial_envelopes(audio, sr, fundamental_hz, partials=20)` estimates
+local sinusoid magnitudes by joint Hann-weighted regression on a supplied known
+frequency or per-sample trajectory. Explicit modal ratios can replace the integer
+partial count for known inharmonic strings. Results include clip-clock times,
+amplitudes, residual RMS, design condition and an iid-white-noise coefficient
+floor; the floor flag is not a general tone detector. Phases are not returned.
+Frequency errors, coloured noise, rapid amplitude changes and unresolved modes
+require independent checks. This analysis does not change the existing band-energy
+profiles or transcribe unknown notes.
+
 `Violin`, `Cello`, `BowedString` and `ModalBowedString` accept optional `body_eq`:
 up to eight `(frequency_Hz, Q, gain_dB)` peaking filters, also overridden per note
 with `music.param(body_eq=...)`. The empty default preserves the existing sound;

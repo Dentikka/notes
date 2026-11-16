@@ -64,6 +64,23 @@ def _body_equalize(wave: np.ndarray, sr: int, bands: tuple[tuple[float, float, f
     return wave
 
 
+def _partial_gain_points(value: object) -> tuple[tuple[float, ...], ...]:
+    """Rows of seconds and linear gains for harmonics 1..H, with bounded size."""
+    if not isinstance(value, (tuple, list)) or len(value) > 512:
+        raise ValueError('partial_gain_points needs at most 512 time/gain rows')
+    if not value:
+        return ()
+    try:
+        points = np.asarray(value, dtype=float)
+    except (TypeError, ValueError) as error:
+        raise ValueError('partial_gain_points needs rectangular finite time/gain rows') from error
+    if (points.ndim != 2 or not 2 <= points.shape[1] <= 81 or not np.isfinite(points).all()
+            or points[0, 0] < 0 or np.any(np.diff(points[:, 0]) <= 0)
+            or np.any(points[:, 1:] < 0) or np.any(points[:, 1:] > 16)):
+        raise ValueError('partial_gain_points needs increasing nonnegative seconds and 1..80 gains in [0, 16]')
+    return tuple(tuple(float(x) for x in row) for row in points)
+
+
 @register_instrument("piano")
 @dataclass(frozen=True, kw_only=True)
 class Piano(Instrument):
@@ -232,6 +249,11 @@ class BowedString(Instrument):
     bow_noise_highpass/lowpass optionally set noise-only biquad corners in Hz,
     also per note. None keeps the body-scaled highpass or disables the lowpass.
     Explicit corners must be >=10 Hz and <=.45 of the rendering sample rate.
+    Optional partial_gain_points rows contain seconds followed by linear gains
+    for harmonics 1..H (H<=80). Gains in [0,16] interpolate and hold at endpoints,
+    before the common envelope and body_eq. Unspecified harmonics keep gain 1;
+    the noise, frequencies and random stream are untouched. Empty keeps the old
+    source. Notes may override or disable a configured curve with an empty list.
     Per-note legato=True shortens attack; vibrato/bends/pitch_points are supported.
     Optional body_eq is a tuple of (frequency_Hz, Q, gain_dB) peaking filters,
     overridden per note with the same parameter. Frequencies are absolute, not
@@ -253,9 +275,11 @@ class BowedString(Instrument):
     vibrato_rate: float = 5.3
     level: float = 0.32
     body_eq: tuple[tuple[float, float, float], ...] = ()
+    partial_gain_points: tuple[tuple[float, ...], ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, 'body_eq', _body_eq_bands(self.body_eq))
+        object.__setattr__(self, 'partial_gain_points', _partial_gain_points(self.partial_gain_points))
         self._validate_noise_seed(self.bow_noise_seed)
         for name in ('bow_noise_highpass', 'bow_noise_lowpass'):
             object.__setattr__(self, name, self._noise_corner(name, getattr(self, name)))
@@ -288,6 +312,8 @@ class BowedString(Instrument):
 
     def voice(self, v: Voice, ctx: RenderContext, rng: np.random.Generator) -> np.ndarray:
         body_eq = _body_eq_bands(v.params.get('body_eq', self.body_eq))
+        points = _partial_gain_points(v.params.get('partial_gain_points', self.partial_gain_points))
+        partial_points = np.asarray(points) if points else None
         noise_seed = v.params.get('bow_noise_seed', self.bow_noise_seed)
         self._validate_noise_seed(noise_seed)
         corners = {name: self._noise_corner(name, v.params.get(name, getattr(self, name)), ctx.sr)
@@ -314,7 +340,10 @@ class BowedString(Instrument):
             body = 0.35 + sum(g / (1 + ((hz - f / self.body_size) / (w / self.body_size)) ** 2)
                               for f, w, g in ((460, 100, 0.9), (550, 90, 0.7), (2400, 700, 1.8)))
             amp = body * np.exp(-(k - 1) / (8 + 30 * controls['pressure'] * v.vel)) / k
-            y += amp * np.sin(2 * np.pi * k * phase)
+            partial = amp * np.sin(2 * np.pi * k * phase)
+            if partial_points is not None and k < partial_points.shape[1]:
+                partial *= np.interp(t, partial_points[:, 0], partial_points[:, k])
+            y += partial
         # Consume the legacy draw even with a separate noise seed: the later
         # amplitude phase and the caller's next voice must keep their old stream.
         excitation = rng.normal(size=n)
