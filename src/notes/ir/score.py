@@ -39,7 +39,11 @@ def _dump_pitch(p: float) -> int | float:
 
 @dataclass(frozen=True)
 class NoteEvent:
-    """One sounding note: onset and length in beats, pitch as a (fractional) MIDI number."""
+    """One sounding note: exact beats, MIDI pitch, and optional seed-type metadata.
+
+    Serialized ``seed_pitch_int`` preserves a builtin integer pitch's RNG
+    representation. Old unmarked JSON retains the previous float interpretation.
+    """
 
     time: Fraction
     dur: Fraction
@@ -73,14 +77,26 @@ class NoteEvent:
             d["params"] = dict(self.params)
         if self.path:
             d["path"] = self.path
+        # RNG seeds distinguish builtin int and float pitches. Keep an explicit
+        # int's representation without changing direct renders or old JSON.
+        if type(self.pitch) is int:
+            d['seed_pitch_int'] = True
         return d
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> NoteEvent:
+        pitch = float(d['pitch'])
+        integer_seed = d.get('seed_pitch_int', False)
+        if not isinstance(integer_seed, bool):
+            raise ValueError('seed_pitch_int must be boolean')
+        if integer_seed:
+            if not pitch.is_integer():
+                raise ValueError('integer pitch seed requires an integral pitch')
+            pitch = int(pitch)
         return cls(
             time=_load_rational(d["t"]),
             dur=_load_rational(d["dur"]),
-            pitch=float(d["pitch"]),
+            pitch=pitch,
             vel=float(d["vel"]),
             track=str(d["track"]),
             params=tuple(sorted(dict(d.get("params", {})).items())),
