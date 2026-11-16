@@ -41,6 +41,22 @@ def test_known_inharmonic_modes_do_not_get_forced_into_harmonic_bands():
     assert max(result.residual_rms) < 1e-11
 
 
+def test_eighty_moving_modes_are_resolved_at_the_reference_analysis_rate():
+    sr, f0 = 22050, 66.
+    time = np.arange(round(sr*.8))/sr
+    frequency = f0*2**(20*np.sin(2*np.pi*5.3*time)/1200)
+    phase = 2*np.pi*np.concatenate(([0.], np.cumsum(frequency[:-1]/sr)))
+    amplitudes = .7/np.arange(1, 81)
+    rng = np.random.default_rng(11)
+    x = sum(a*np.sin(h*phase+phi) for h, (a, phi) in
+            enumerate(zip(amplitudes, rng.uniform(0, 6, 80), strict=True), 1))
+    x += .0005*rng.normal(size=len(time))
+    result = partial_envelopes(x, sr, frequency, partials=80, step=.08)
+    assert result.amplitude.shape[1] == 80
+    assert np.max(abs(20*np.log10(result.amplitude/amplitudes))) < .08
+    assert np.all(result.above_white_noise_floor)
+
+
 def test_white_noise_dc_silence_and_missing_modes_do_not_become_supported_tones():
     sr = 8000
     noise = partial_envelopes(np.random.default_rng(9).normal(size=sr*2), sr, 220., partials=12)
