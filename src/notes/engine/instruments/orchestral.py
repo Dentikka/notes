@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.signal import lfilter
 
-from notes.engine.articulation import _partial_gain_points, pitch_curve
+from notes.engine.articulation import _partial_gain_points, _unison_strings, pitch_curve
 from notes.engine.base import Instrument, RenderContext, Voice
 from notes.engine.dsp import adsr, biquad, filt, vel_gain
 from notes.engine.registry import register_instrument
@@ -87,6 +87,10 @@ class Piano(Instrument):
     but addresses dispersive mode groups, including their detuned partners.
     It changes only readout, not contact forces, modal damping or frequencies.
     Nonempty curves are supported only by hammer and hammer_damped models.
+    Optional unison_strings=1..3 uses equally weighted free-ring components,
+    symmetrically detuned around each mode by up to detune cents. None preserves
+    the original unequal two-component readout. This is an equivalent-string
+    readout, not a new coupled-string hammer simulation. Notes may override it.
     legacy preserves the original renderer.
     """
 
@@ -97,6 +101,7 @@ class Piano(Instrument):
     sustain: float = 8.0
     brightness: float = 0.65
     detune: float = 1.4
+    unison_strings: int | None = None
     stiffness: float = 0.00012
     hammer: float = 0.035
     release: float = 0.18
@@ -105,10 +110,13 @@ class Piano(Instrument):
 
     def __post_init__(self) -> None:
         object.__setattr__(self, 'partial_gain_points', _partial_gain_points(self.partial_gain_points))
+        object.__setattr__(self, 'unison_strings', _unison_strings(self.unison_strings))
         if self.model not in ("legacy", "soundboard", "hammer", "hammer_damped"):
             raise ValueError("model must be legacy, soundboard, hammer or hammer_damped")
         if self.partial_gain_points and self.model not in ('hammer', 'hammer_damped'):
             raise ValueError('partial_gain_points requires hammer or hammer_damped piano')
+        if self.unison_strings is not None and self.model not in ('hammer', 'hammer_damped'):
+            raise ValueError('unison_strings requires hammer or hammer_damped piano')
         if not np.isfinite(self.attack_presence) or not 0 <= self.attack_presence <= 1:
             raise ValueError("attack_presence must be between 0 and 1")
         if not np.isfinite(self.hammer_mass_scale) or not 0.25 <= self.hammer_mass_scale <= 4:
@@ -124,8 +132,11 @@ class Piano(Instrument):
 
     def voice(self, v: Voice, ctx: RenderContext, rng: np.random.Generator) -> np.ndarray:
         points = _partial_gain_points(v.params.get('partial_gain_points', self.partial_gain_points))
+        strings = _unison_strings(v.params.get('unison_strings', self.unison_strings))
         if points and self.model not in ('hammer', 'hammer_damped'):
             raise ValueError('partial_gain_points requires hammer or hammer_damped piano')
+        if strings is not None and self.model not in ('hammer', 'hammer_damped'):
+            raise ValueError('unison_strings requires hammer or hammer_damped piano')
         if self.model in ("hammer", "hammer_damped"):
             from notes.engine.hammer import struck_string
 
@@ -141,6 +152,8 @@ class Piano(Instrument):
                 if not np.isfinite(stiffness) or stiffness < 0:
                     raise ValueError("per-note stiffness must be finite and nonnegative")
             readout_options = {'partial_gain_points': points} if points else {}
+            if strings is not None:
+                readout_options['unison_strings'] = strings
             y = struck_string(v.freq, n, ctx.sr, v.vel, brightness=self.brightness,
                               stiffness=stiffness, sustain=self.sustain, detune=self.detune,
                               radiation=self.model == "hammer_damped", attack_presence=self.attack_presence,

@@ -8,14 +8,15 @@ from __future__ import annotations
 import numpy as np
 from scipy.signal import resample_poly
 
-from notes.engine.articulation import _partial_gain_points
+from notes.engine.articulation import _partial_gain_points, _unison_strings
 
 
 def struck_string(freq: float, n: int, sr: int, velocity: float, *,
                   brightness: float = 0.65, stiffness: float = 0.00012,
                   sustain: float = 8.0, detune: float = 1.4, radiation: bool = False,
                   attack_presence: float = 0.0, hammer_mass_scale: float = 1.0,
-                  partial_gain_points: tuple[tuple[float, ...], ...] = ()) -> np.ndarray:
+                  partial_gain_points: tuple[tuple[float, ...], ...] = (),
+                  unison_strings: int | None = None) -> np.ndarray:
     """Return bridge-velocity-like output following one felt hammer impact.
 
     Frequencies and stiffness define the modes, velocity the initial hammer speed.
@@ -23,11 +24,17 @@ def struck_string(freq: float, n: int, sr: int, velocity: float, *,
     hammer_mass_scale changes the physical impact, not an output equalizer.
     partial_gain_points changes only modal readout, including both unison
     components and the integrated contact head. Empty preserves the old output.
+    unison_strings optionally uses 1..3 equally weighted free-ring components
+    from the same impact state. None keeps the original unequal pair. This
+    readout approximation does not simulate separate coupled contact states.
     """
     if not np.isfinite(hammer_mass_scale) or not 0.25 <= hammer_mass_scale <= 4:
         raise ValueError("hammer_mass_scale must be between 0.25 and 4")
     points = _partial_gain_points(partial_gain_points)
     controls = np.asarray(points) if points else None
+    strings = _unison_strings(unison_strings)
+    if strings is not None and (not np.isfinite(detune) or detune < 0):
+        raise ValueError('explicit unison detune must be finite and nonnegative')
     if n <= 0:
         return np.zeros(0)
     if velocity <= 0:
@@ -41,6 +48,9 @@ def struck_string(freq: float, n: int, sr: int, velocity: float, *,
     frequencies = freq * k * np.sqrt((1 + stiffness * k * k) / (1 + stiffness))
     keep = frequencies < 0.4 * sr
     k, frequencies = k[keep], frequencies[keep]
+    if (strings is not None and strings > 1 and len(frequencies)
+            and detune >= 1200*np.log2(.45*sr/max(frequencies))):
+        raise ValueError('explicit unison frequencies must remain below .45 of the sample rate')
     omega = 2 * np.pi * frequencies
     coupling = np.sin(np.pi * k * 0.135)
     bridge = np.sin(np.pi * k * 0.965)
@@ -112,12 +122,26 @@ def struck_string(freq: float, n: int, sr: int, velocity: float, *,
     for number, w, qi, vi, b, decay, lift in zip(k.astype(int), omega, q, speed, bridge, t60, onset_lift, strict=True):
         phase = w * times
         primary = vi * np.cos(phase) - w * qi * np.sin(phase)
-        partner_phase = w * 2 ** (detune / 1200) * times
-        partner = vi * np.cos(partner_phase) - w * qi * np.sin(partner_phase)
-        # Bring in the secondary polarization continuously after contact.
-        blend = 0.23 * (1 - np.exp(-times / 0.06))
+        if strings is None:
+            partner_phase = w * 2 ** (detune / 1200) * times
+            partner = vi * np.cos(partner_phase) - w * qi * np.sin(partner_phase)
+            # Preserve the original unequal secondary polarization exactly.
+            blend = 0.23 * (1 - np.exp(-times / 0.06))
+            ringing = (1 - blend) * primary + blend * partner
+        elif strings == 1:
+            ringing = primary
+        else:
+            combined = np.zeros_like(primary)
+            for cents in np.linspace(-detune, detune, strings):
+                if cents == 0:
+                    combined += primary
+                else:
+                    unison_w = w*2**(cents/1200)
+                    combined += vi*np.cos(unison_w*times)-unison_w*qi*np.sin(unison_w*times)
+            blend = 1-np.exp(-times/.06)
+            ringing = (1-blend)*primary+blend*combined/strings
         readout = b * (1 + lift * np.exp(-(stop / rate + times) / 0.06))
         if controls is not None and number < controls.shape[1]:
             readout *= np.interp(stop/rate+times, controls[:, 0], controls[:, number])
-        y[count:] += readout * ((1 - blend) * primary + blend * partner) * np.exp(-np.log(1000)*times/decay)
+        y[count:] += readout * ringing * np.exp(-np.log(1000)*times/decay)
     return y * 0.11

@@ -48,6 +48,12 @@ def _partial_gain_points(value: object) -> tuple[tuple[float, ...], ...]:
     return tuple(tuple(float(x) for x in row) for row in points)
 
 
+def _unison_strings(value: object) -> int | None:
+    if value is not None and (not isinstance(value, int) or isinstance(value, bool) or value not in (1, 2, 3)):
+        raise ValueError('unison_strings must be None or an integer from 1 to 3')
+    return value
+
+
 def expression_curve(params: Mapping[str, Any], n: int, sr: int) -> np.ndarray | None:
     """Optional audio gain curve: (seconds from onset, linear gain in [0, 1]).
 

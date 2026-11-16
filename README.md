@@ -273,6 +273,15 @@ They do not alter hammer contact, damping or modal frequencies. Empty keeps the
 accepted waveform; an empty note override disables a configured curve. Nonempty
 curves on legacy/soundboard pianos are rejected rather than silently ignored.
 
+Optional `unison_strings=1..3` on contact pianos or their notes selects an equally
+weighted free-ring group. Two/three components span `-detune..+detune` cents;
+one component keeps the central mode. Their phases evolve from the calculated
+impact state, with a smooth transition after contact. `None` retains the original
+unequal two-component readout, and a note-level `None` restores it. This does not
+add separate coupled hammer/string states; it is a controllable readout model.
+Nonempty settings on legacy/soundboard pianos and explicit unisons beyond the
+renderable frequency band are rejected. No recorded phases are used.
+
 `BowedString`, `Violin` and `Cello` accept per-note `pressure` and `bow_noise`,
 for example `music.param(pressure=.22, bow_noise=.018)`. Values must be finite
 and nonnegative; zero is allowed. They override the corresponding preset fields,
