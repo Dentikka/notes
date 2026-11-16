@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.signal import lfilter
 
-from notes.engine.articulation import pitch_curve
+from notes.engine.articulation import _partial_gain_points, pitch_curve
 from notes.engine.base import Instrument, RenderContext, Voice
 from notes.engine.dsp import adsr, biquad, filt, vel_gain
 from notes.engine.registry import register_instrument
@@ -64,23 +64,6 @@ def _body_equalize(wave: np.ndarray, sr: int, bands: tuple[tuple[float, float, f
     return wave
 
 
-def _partial_gain_points(value: object) -> tuple[tuple[float, ...], ...]:
-    """Rows of seconds and linear gains for harmonics 1..H, with bounded size."""
-    if not isinstance(value, (tuple, list)) or len(value) > 512:
-        raise ValueError('partial_gain_points needs at most 512 time/gain rows')
-    if not value:
-        return ()
-    try:
-        points = np.asarray(value, dtype=float)
-    except (TypeError, ValueError) as error:
-        raise ValueError('partial_gain_points needs rectangular finite time/gain rows') from error
-    if (points.ndim != 2 or not 2 <= points.shape[1] <= 81 or not np.isfinite(points).all()
-            or points[0, 0] < 0 or np.any(np.diff(points[:, 0]) <= 0)
-            or np.any(points[:, 1:] < 0) or np.any(points[:, 1:] > 16)):
-        raise ValueError('partial_gain_points needs increasing nonnegative seconds and 1..80 gains in [0, 16]')
-    return tuple(tuple(float(x) for x in row) for row in points)
-
-
 @register_instrument("piano")
 @dataclass(frozen=True, kw_only=True)
 class Piano(Instrument):
@@ -100,6 +83,10 @@ class Piano(Instrument):
     the original impact. This control is unused by legacy and soundboard models.
     Per-note stiffness overrides the inharmonicity coefficient in hammer models;
     it must be finite and nonnegative. Other models retain their existing controls.
+    Optional partial_gain_points uses the same time/gain rows as BowedString,
+    but addresses dispersive mode groups, including their detuned partners.
+    It changes only readout, not contact forces, modal damping or frequencies.
+    Nonempty curves are supported only by hammer and hammer_damped models.
     legacy preserves the original renderer.
     """
 
@@ -114,10 +101,14 @@ class Piano(Instrument):
     hammer: float = 0.035
     release: float = 0.18
     level: float = 0.45
+    partial_gain_points: tuple[tuple[float, ...], ...] = ()
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, 'partial_gain_points', _partial_gain_points(self.partial_gain_points))
         if self.model not in ("legacy", "soundboard", "hammer", "hammer_damped"):
             raise ValueError("model must be legacy, soundboard, hammer or hammer_damped")
+        if self.partial_gain_points and self.model not in ('hammer', 'hammer_damped'):
+            raise ValueError('partial_gain_points requires hammer or hammer_damped piano')
         if not np.isfinite(self.attack_presence) or not 0 <= self.attack_presence <= 1:
             raise ValueError("attack_presence must be between 0 and 1")
         if not np.isfinite(self.hammer_mass_scale) or not 0.25 <= self.hammer_mass_scale <= 4:
@@ -132,6 +123,9 @@ class Piano(Instrument):
         return max(self.release, self.sustain)
 
     def voice(self, v: Voice, ctx: RenderContext, rng: np.random.Generator) -> np.ndarray:
+        points = _partial_gain_points(v.params.get('partial_gain_points', self.partial_gain_points))
+        if points and self.model not in ('hammer', 'hammer_damped'):
+            raise ValueError('partial_gain_points requires hammer or hammer_damped piano')
         if self.model in ("hammer", "hammer_damped"):
             from notes.engine.hammer import struck_string
 
@@ -146,10 +140,12 @@ class Piano(Instrument):
                     raise ValueError("per-note stiffness must be finite and nonnegative") from error
                 if not np.isfinite(stiffness) or stiffness < 0:
                     raise ValueError("per-note stiffness must be finite and nonnegative")
+            readout_options = {'partial_gain_points': points} if points else {}
             y = struck_string(v.freq, n, ctx.sr, v.vel, brightness=self.brightness,
                               stiffness=stiffness, sustain=self.sustain, detune=self.detune,
                               radiation=self.model == "hammer_damped", attack_presence=self.attack_presence,
-                              hammer_mass_scale=v.params.get("hammer_mass_scale", self.hammer_mass_scale))
+                              hammer_mass_scale=v.params.get("hammer_mass_scale", self.hammer_mass_scale),
+                              **readout_options)
             if not pedal:
                 y *= adsr(ctx.samples(v.dur), n, ctx.sr, 0.001, 0.01, 1, self.release)
             count = min(n, ctx.samples(0.01))

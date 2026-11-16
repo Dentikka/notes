@@ -263,6 +263,16 @@ body resonances, friction noise and controllable vibrato. Explicit per-note vibr
 parameters override the preset. These are procedural approximations, not recorded
 instrument libraries or a claim of reference matching.
 
+`Piano(model="hammer_damped")` and `Piano(model="hammer")` also accept optional
+`partial_gain_points` on the instrument or note. Rows contain seconds and linear
+gains for successive dispersive mode groups, including each mode's detuned partner.
+The same limits of 512 rows, 80 gains per row and gains in [0,16] apply; only modes actually
+present in the model (at most 64) are read out. Gains affect the integrated contact
+head and free ring at their actual clocks, before key-release/pedal envelopes.
+They do not alter hammer contact, damping or modal frequencies. Empty keeps the
+accepted waveform; an empty note override disables a configured curve. Nonempty
+curves on legacy/soundboard pianos are rejected rather than silently ignored.
+
 `BowedString`, `Violin` and `Cello` accept per-note `pressure` and `bow_noise`,
 for example `music.param(pressure=.22, bow_noise=.018)`. Values must be finite
 and nonnegative; zero is allowed. They override the corresponding preset fields,

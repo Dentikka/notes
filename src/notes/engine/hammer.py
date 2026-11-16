@@ -8,19 +8,26 @@ from __future__ import annotations
 import numpy as np
 from scipy.signal import resample_poly
 
+from notes.engine.articulation import _partial_gain_points
+
 
 def struck_string(freq: float, n: int, sr: int, velocity: float, *,
                   brightness: float = 0.65, stiffness: float = 0.00012,
                   sustain: float = 8.0, detune: float = 1.4, radiation: bool = False,
-                  attack_presence: float = 0.0, hammer_mass_scale: float = 1.0) -> np.ndarray:
+                  attack_presence: float = 0.0, hammer_mass_scale: float = 1.0,
+                  partial_gain_points: tuple[tuple[float, ...], ...] = ()) -> np.ndarray:
     """Return bridge-velocity-like output following one felt hammer impact.
 
     Frequencies and stiffness define the modes, velocity the initial hammer speed.
     The contact has a compression-only power-law force; no prerecorded excitation.
     hammer_mass_scale changes the physical impact, not an output equalizer.
+    partial_gain_points changes only modal readout, including both unison
+    components and the integrated contact head. Empty preserves the old output.
     """
     if not np.isfinite(hammer_mass_scale) or not 0.25 <= hammer_mass_scale <= 4:
         raise ValueError("hammer_mass_scale must be between 0.25 and 4")
+    points = _partial_gain_points(partial_gain_points)
+    controls = np.asarray(points) if points else None
     if n <= 0:
         return np.zeros(0)
     if velocity <= 0:
@@ -59,6 +66,13 @@ def struck_string(freq: float, n: int, sr: int, velocity: float, *,
     damping = np.exp(-np.log(1000) * dt / t60)
     contact_samples = min(n * factor, int(0.025 * rate))
     contact = np.zeros(contact_samples)
+    contact_gains = None
+    if controls is not None:
+        contact_gains = np.ones((contact_samples, len(k)))
+        contact_time = np.arange(contact_samples)/rate
+        for index, number in enumerate(k.astype(int)):
+            if number < controls.shape[1]:
+                contact_gains[:, index] = np.interp(contact_time, controls[:, 0], controls[:, number])
     touched = False
     stop = contact_samples
     for i in range(contact_samples):
@@ -70,7 +84,10 @@ def struck_string(freq: float, n: int, sr: int, velocity: float, *,
         q = new_q * damping
         hammer_v -= dt * force / hammer_mass
         hammer_x += dt * hammer_v
-        contact[i] = (bridge * (1 + onset_lift * np.exp(-i * dt / 0.06))) @ speed
+        readout = bridge * (1 + onset_lift * np.exp(-i * dt / 0.06))
+        if contact_gains is not None:
+            readout = readout*contact_gains[i]
+        contact[i] = readout @ speed
         touched |= force > 0.001
         if touched and compression <= 0:
             stop = i + 1
@@ -81,8 +98,10 @@ def struck_string(freq: float, n: int, sr: int, velocity: float, *,
     end = min(total, stop + 64 * factor)
     times = np.arange(max(0, end - stop)) / rate
     extension = np.zeros(len(times))
-    for w, qi, vi, b, decay, lift in zip(omega, q, speed, bridge, t60, onset_lift, strict=True):
+    for number, w, qi, vi, b, decay, lift in zip(k.astype(int), omega, q, speed, bridge, t60, onset_lift, strict=True):
         readout = b * (1 + lift * np.exp(-(stop / rate + times) / 0.06))
+        if controls is not None and number < controls.shape[1]:
+            readout *= np.interp(stop/rate+times, controls[:, 0], controls[:, number])
         extension += readout * (vi * np.cos(w * times) - w * qi * np.sin(w * times)) * np.exp(-np.log(1000)*times/decay)
     head = resample_poly(np.concatenate((contact, extension)), 1, factor)
     # The rest of the ring is evaluated at the output rate, at the same physical times.
@@ -90,7 +109,7 @@ def struck_string(freq: float, n: int, sr: int, velocity: float, *,
     count = min(n, int(np.ceil(stop / factor)) + 16)
     y[:count] = head[:count]
     times = np.arange(count, n) / sr - stop / rate
-    for w, qi, vi, b, decay, lift in zip(omega, q, speed, bridge, t60, onset_lift, strict=True):
+    for number, w, qi, vi, b, decay, lift in zip(k.astype(int), omega, q, speed, bridge, t60, onset_lift, strict=True):
         phase = w * times
         primary = vi * np.cos(phase) - w * qi * np.sin(phase)
         partner_phase = w * 2 ** (detune / 1200) * times
@@ -98,5 +117,7 @@ def struck_string(freq: float, n: int, sr: int, velocity: float, *,
         # Bring in the secondary polarization continuously after contact.
         blend = 0.23 * (1 - np.exp(-times / 0.06))
         readout = b * (1 + lift * np.exp(-(stop / rate + times) / 0.06))
+        if controls is not None and number < controls.shape[1]:
+            readout *= np.interp(stop/rate+times, controls[:, 0], controls[:, number])
         y[count:] += readout * ((1 - blend) * primary + blend * partner) * np.exp(-np.log(1000)*times/decay)
     return y * 0.11
