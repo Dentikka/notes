@@ -823,6 +823,15 @@ releases a held pluck; +/-1 begins at zero deflection with opposite velocities.
 Velocity scales energy independently. `pluck_force` sets the model's effective
 pull; `level` converts mechanical velocity to DSP amplitude.
 
+Optional `partial_gains=(1.0, 0.7, 1.3)` scales the readout of the first physical
+string coordinates (up to 80 gains in 0..16); remaining coordinates keep gain one.
+The same parameter is available per note and in the low-level `modal_string` and
+`palm_string` functions. It leaves mechanical matrices, initial energy and the
+moving-bridge readout unchanged. These are empirical static spectral controls,
+not recorded carriers, identified pickup geometry or a new accepted preset.
+Empty or identity gains preserve the previous output. Reference-conditioned
+gains must be validated on other notes/strikes before claiming transfer.
+
 For muted notes, optional `palm_resistance` enables a passive distributed viscous
 contact instead of scalar `mute_decay`. None retains the original source; zero
 selects contact mechanics with no additional damping. `palm_position` and

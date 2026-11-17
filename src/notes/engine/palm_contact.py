@@ -9,6 +9,7 @@ from scipy.linalg import eig, eigh, expm, solve
 from scipy.optimize import linear_sum_assignment
 from scipy.signal import resample_poly
 
+from notes.engine.articulation import _partial_gains
 from notes.engine.mechanical_string import _initial_state, _mechanics, _output, _point, _State
 
 
@@ -102,7 +103,7 @@ def palm_string(freq: float, n: int, sr: int, *, position: float, contact_width:
                 release_motion: float = 0., modes: int = 64, stiffness: float = 4e-5,
                 body_hz: float = 125., body_q: float = 20., peak: float = .01,
                 tension: float = 70., length: float = .65, sustain: float = 9.,
-                treble_decay: float = 2.5) -> np.ndarray:
+                treble_decay: float = 2.5, partial_gains: tuple[float, ...] = ()) -> np.ndarray:
     """Mechanical velocity with a stationary, uniformly distributed viscous contact.
 
     Contact coordinates are fractions of the vibrating length; resistance is the
@@ -110,7 +111,10 @@ def palm_string(freq: float, n: int, sr: int, *, position: float, contact_width:
     This is a passive linear approximation, not an identified hand/string model.
     The physical modal band is independent of output rate, bounded by ``modes``.
     Low output rates use an oversampled observation and polyphase decimation.
+    Optional ``partial_gains`` changes physical string-coordinate readout only;
+    contact mechanics, initial energy and the bridge readout remain unchanged.
     """
+    gains = _partial_gains(partial_gains)
     if (not isinstance(n, int) or isinstance(n, bool) or n < 0 or not isinstance(sr, int)
             or isinstance(sr, bool) or sr < 4000 or not np.isfinite(freq) or not 20 <= freq < sr*.44):
         raise ValueError('palm string needs integer length/rate, sr>=4000 and 20<=freq<.44*sr')
@@ -151,7 +155,7 @@ def palm_string(freq: float, n: int, sr: int, *, position: float, contact_width:
     else:
         raise ValueError('could not tune the palm-damped string fundamental')
     initial = _initial_state(model, pick, cutoff if rounding == 'spatial' else None, release_motion)
-    output = _output(model, pickup, pickup_width, spacing, relative)
+    output = _output(model, pickup, pickup_width, spacing, relative, gains)
     highest = float(abs(model['poles'].imag).max()/(2*np.pi))
     factor = max(1, ceil(2.5*highest/sr))
     # Future observation support avoids changing a prefix when a longer note is requested.

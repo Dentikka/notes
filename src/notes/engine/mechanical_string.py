@@ -14,6 +14,8 @@ import numpy as np
 from scipy.linalg import eig, eigh, solve
 from scipy.optimize import linear_sum_assignment
 
+from notes.engine.articulation import _partial_gains
+
 __all__ = ["modal_string"]
 
 
@@ -123,9 +125,14 @@ def _initial_state(model: _State, pick: float, cutoff: float | None,
     return np.r_[position, velocity]
 
 
-def _output(model: _State, pickup: float, width: float, spacing: float, relative: bool) -> np.ndarray:
+def _output(model: _State, pickup: float, width: float, spacing: float, relative: bool,
+            partial_gains: tuple[float, ...] = ()) -> np.ndarray:
     readout = _point(model['h'], pickup, width=width, spacing=spacing,
                     body=len(model['M']) > len(model['h']), relative=relative)
+    gains = _partial_gains(partial_gains)
+    if gains:
+        count = min(len(gains), len(model['h']))
+        readout[:count] *= gains[:count]
     return np.r_[np.zeros(len(model['omega'])), readout@model['U']]
 
 
@@ -136,7 +143,8 @@ def modal_string(freq: float, n: int, sr: int, *, pick: float = .15, pickup: flo
                  peak: float = .01, tension: float = 70., length: float = .65,
                  sustain: float = 9., treble_decay: float = 2.5,
                  palm_resistance: float | None = None, palm_position: float = .08,
-                 palm_width: float = .04, mechanical_band: float = 8000.) -> np.ndarray:
+                 palm_width: float = .04, mechanical_band: float = 8000.,
+                 partial_gains: tuple[float, ...] = ()) -> np.ndarray:
     """Magnetic velocity readout of a finite, dissipative string/bridge model.
 
     ``release_motion`` is the signed fraction of initial energy in a velocity
@@ -149,7 +157,12 @@ def modal_string(freq: float, n: int, sr: int, *, pick: float = .15, pickup: flo
     ``palm_resistance=None`` preserves the original source. A nonnegative value
     selects the distributed-contact source with its independent physical band;
     zero selects the same mechanics with no added contact damping.
+    ``partial_gains`` optionally scales the first 1..80 physical string-coordinate
+    readouts, not damped eigenmodes or the mechanical state. Missing gains are one;
+    the bridge readout is unchanged. This is an empirical output control, not an
+    identified pickup or excitation. Empty preserves the original output.
     """
+    gains = _partial_gains(partial_gains)
     if palm_resistance is not None:
         from notes.engine.palm_contact import palm_string
 
@@ -157,7 +170,8 @@ def modal_string(freq: float, n: int, sr: int, *, pick: float = .15, pickup: flo
             resistance=palm_resistance, mechanical_band=mechanical_band, pick=pick, pickup=pickup,
             pickup_width=width, spacing=spacing, relative=relative, cutoff=cutoff, rounding=rounding,
             release_motion=release_motion, modes=modes, stiffness=stiffness, body_hz=body_hz,
-            body_q=body_q, peak=peak, tension=tension, length=length, sustain=sustain, treble_decay=treble_decay)
+            body_q=body_q, peak=peak, tension=tension, length=length, sustain=sustain,
+            treble_decay=treble_decay, partial_gains=gains)
     if (not isinstance(n, int) or n < 0 or not isinstance(sr, int) or sr < 4000
             or not np.isfinite(freq) or not 20 <= freq < sr/4):
         raise ValueError('modal string needs integer length/rate, sr >= 4000 and 20 <= freq < sr/4')
@@ -186,7 +200,7 @@ def modal_string(freq: float, n: int, sr: int, *, pick: float = .15, pickup: flo
         raise ValueError('rounding must be spatial or release')
     z0 = _initial_state(model, pick, cutoff if rounding == 'spatial' else None,
                         release_motion)
-    readout = _output(model, pickup, width, spacing, relative)
+    readout = _output(model, pickup, width, spacing, relative, gains)
     weights = (readout@model['V'])*solve(model['V'], z0)
     selected = model['positive']
     selected = selected[model['poles'][selected].imag < 2*np.pi*.44*sr]

@@ -31,6 +31,19 @@ _VIBRATO_FADE_S = 0.3
 _RATE_WANDER = 0.08
 
 
+def _partial_gains(value: object) -> tuple[float, ...]:
+    """Nonnegative static physical-string-coordinate readout gains."""
+    if not isinstance(value, (tuple, list)) or len(value) > 80:
+        raise ValueError('partial_gains needs at most 80 gains in [0, 16]')
+    try:
+        gains = np.asarray(value, dtype=float)
+    except (TypeError, ValueError) as error:
+        raise ValueError('partial_gains needs finite gains in [0, 16]') from error
+    if gains.ndim != 1 or not np.isfinite(gains).all() or np.any(gains < 0) or np.any(gains > 16):
+        raise ValueError('partial_gains needs finite gains in [0, 16]')
+    return tuple(float(x) for x in gains)
+
+
 def _partial_gain_points(value: object) -> tuple[tuple[float, ...], ...]:
     """Rows of seconds and linear mode gains; shared by harmonic/modal readouts."""
     if not isinstance(value, (tuple, list)) or len(value) > 512:
