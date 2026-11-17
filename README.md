@@ -628,6 +628,16 @@ and increased MERT in five, with one regression. Several isolated notes also
 regressed, so the original waveguide remains the default. Excitation and body
 responses are generated mathematically without recorded samples or measured IRs.
 
+Optional `force_gains=(1.0, 0.6, 1.2)` changes the first modal force harmonics
+in `AcousticGuitar(model="modal")`, including the summed static load used to
+initialize the designed body. It scales both polarization branches; unspecified
+gains remain one. Up to 80 gains in 0..16 may be set on the instrument or a note.
+Other models reject nonempty values. This changes the prescribed initial force
+shape, unlike output EQ or `ModalString.partial_gains` readout coefficients.
+No recorded excitation or phase is loaded. Conditional gains improved four
+isolated-note fits, but interpolating them by pitch did not transfer reliably;
+they do not identify pluck geometry or replace the accepted guitar palette.
+
 The waveguide/modal acoustic body can optionally use `body_phase="minimum"`
 (`Body(phase="minimum")` as an effect). This moves energy toward the start of the
 mathematically designed body response, approximately retaining its magnitude
