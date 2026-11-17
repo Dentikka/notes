@@ -44,20 +44,20 @@ def _partial_gains(value: object, *, name: str = 'partial_gains') -> tuple[float
     return tuple(float(x) for x in gains)
 
 
-def _partial_gain_points(value: object) -> tuple[tuple[float, ...], ...]:
+def _partial_gain_points(value: object, *, name: str = 'partial_gain_points') -> tuple[tuple[float, ...], ...]:
     """Rows of seconds and linear mode gains; shared by harmonic/modal readouts."""
     if not isinstance(value, (tuple, list)) or len(value) > 512:
-        raise ValueError('partial_gain_points needs at most 512 time/gain rows')
+        raise ValueError(f'{name} needs at most 512 time/gain rows')
     if not value:
         return ()
     try:
         points = np.asarray(value, dtype=float)
     except (TypeError, ValueError) as error:
-        raise ValueError('partial_gain_points needs rectangular finite time/gain rows') from error
+        raise ValueError(f'{name} needs rectangular finite time/gain rows') from error
     if (points.ndim != 2 or not 2 <= points.shape[1] <= 81 or not np.isfinite(points).all()
             or points[0, 0] < 0 or np.any(np.diff(points[:, 0]) <= 0)
             or np.any(points[:, 1:] < 0) or np.any(points[:, 1:] > 16)):
-        raise ValueError('partial_gain_points needs increasing nonnegative seconds and 1..80 gains in [0, 16]')
+        raise ValueError(f'{name} needs increasing nonnegative seconds and 1..80 gains in [0, 16]')
     return tuple(tuple(float(x) for x in row) for row in points)
 
 

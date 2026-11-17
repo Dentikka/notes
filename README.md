@@ -648,6 +648,20 @@ Rates below 4 kHz and the coupled mechanical model are unsupported in this mode.
 The default `"native"` keeps previous renders. This fixes cross-rate consistency;
 it does not establish a more realistic body or validate old fitted coefficients.
 
+Modal acoustic guitars also accept `force_gain_points`, rows of
+`(seconds, gain1, gain2, ...)`, on the instrument or individual notes. Up to 512
+increasing nonnegative times and 80 gains per row in 0..16 are supported.
+For example, `force_gain_points=((0., 0.6, 1.2), (0.2, 1., 0.8))` changes the
+first two modal forces before body filtering. Endpoints hold and unspecified
+modes stay one. These gains multiply `force_gains` and apply to both polarization
+branches and the initial body load. Their clock remains in output seconds
+through bends/slides; pitch interpolation reads force changes, preserving the
+preloaded state. Curves stop driving the body when the note-off gate closes.
+Empty/identity curves retain the previous source. Waveguide/coupled models
+reject nonempty curves. These prescribed force envelopes are empirical controls,
+not an identified passive contact or a universally realistic preset; neither
+reference phases nor recorded carriers are loaded.
+
 The waveguide/modal acoustic body can optionally use `body_phase="minimum"`
 (`Body(phase="minimum")` as an effect). This moves energy toward the start of the
 mathematically designed body response, approximately retaining its magnitude
