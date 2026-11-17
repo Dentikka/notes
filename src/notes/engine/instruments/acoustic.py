@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from notes.engine.articulation import _partial_gains, pitch_curve, variable_rate_read
+from notes.engine.articulation import _partial_gain_points, _partial_gains, pitch_curve, variable_rate_read
 from notes.engine.base import Effect, Instrument, RenderContext, Voice
 from notes.engine.dsp import delay, vel_gain
 from notes.engine.effects.body import _FIXED_LENGTH as _FIXED_BODY_TAIL
@@ -76,6 +76,13 @@ class AcousticGuitar(Instrument):
     to the output rate with ~3 ms shared latency and a 257 ms tail. This prevents
     the native noise texture from changing between analysis/render sample rates.
     Available in waveguide/modal modes; coupled mechanics use their own body.
+    ``force_gain_points=((seconds, gain1, gain2, ...), ...)`` optionally multiplies
+    up to 80 modal forces by prescribed curves before body filtering. Times
+    stay in output seconds through bends/slides; endpoints hold. Both branches
+    and the initial body load use these gains. Static force_gains multiplies
+    them; unspecified modes stay one. Constructor/per-note use requires modal.
+    These empirical force envelopes do not identify a passive pluck or replace
+    the accepted guitar palette. No recorded phases or carriers are used.
     """
 
     program: int | None = 25
@@ -106,11 +113,16 @@ class AcousticGuitar(Instrument):
     level: float = 0.25
     force_gains: tuple[float, ...] = ()
     body_sampling: str = "native"
+    force_gain_points: tuple[tuple[float, ...], ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, 'force_gains', _partial_gains(self.force_gains, name='force_gains'))
+        object.__setattr__(self, 'force_gain_points',
+                           _partial_gain_points(self.force_gain_points, name='force_gain_points'))
         if self.force_gains and self.model != 'modal':
             raise ValueError('force_gains requires model="modal"')
+        if self.force_gain_points and self.model != 'modal':
+            raise ValueError('force_gain_points requires model="modal"')
         if self.dispersion_fit not in ("legacy", "bracketed"):
             raise ValueError("dispersion_fit must be legacy or bracketed")
         if self.body_phase not in ("designed", "minimum"):
@@ -189,6 +201,9 @@ class AcousticGuitar(Instrument):
             return modal_acoustic_voice(self, v, ctx, rng)
         if 'force_gains' in v.params and _partial_gains(v.params['force_gains'], name='force_gains'):
             raise ValueError('force_gains requires model="modal"')
+        if ('force_gain_points' in v.params
+                and _partial_gain_points(v.params['force_gain_points'], name='force_gain_points')):
+            raise ValueError('force_gain_points requires model="modal"')
         sr = ctx.sr
         legato = bool(v.params.get("legato", False))
         gate = ctx.samples(v.dur)

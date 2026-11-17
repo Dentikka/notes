@@ -5,11 +5,12 @@ passively coupled bridge model. No recorded excitation or measured IR is used.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-from notes.engine.articulation import _partial_gains, pitch_curve, variable_rate_read
+from notes.engine.articulation import _partial_gain_points, _partial_gains, pitch_curve, variable_rate_read
 from notes.engine.base import RenderContext, Voice
 from notes.engine.dsp import delay, vel_gain
 from notes.engine.effects.body import Body
@@ -24,16 +25,28 @@ def pluck_force(freq: float, n: int, sr: int, rng: np.random.Generator, *,
                 pick: float = .18, hardness: float = .9, sustain: float = 7.,
                 treble_decay: float = 3., prompt_decay: float = 0.,
                 polarization: float = .3, stiffness: float = 4e-5,
-                roughness: float = .03, force_gains: tuple[float, ...] = ()) -> tuple[np.ndarray, float]:
+                roughness: float = .03, force_gains: tuple[float, ...] = (),
+                force_gain_points: tuple[tuple[float, ...], ...] = (),
+                _read_mode: Callable[[Callable[[int], np.ndarray]], np.ndarray] | None = None,
+                ) -> tuple[np.ndarray, float]:
     """Bridge force and its initial static load for a released deflected string.
 
-    Each damped mode starts at its displacement maximum with zero velocity.
+    Each unmodulated mode starts at its displacement maximum with zero velocity.
     The small initial-shape roughness is generated, not a sampled pick attack.
     Optional force_gains scales the first physical force harmonics of both
     polarizations, including their summed static load. Unspecified gains are one;
     these empirical initial-shape controls do not identify a point pluck.
+    force_gain_points multiplies specified modes by piecewise-linear curves in
+    output seconds, with held endpoints. The preload uses their first gains.
+    These prescribed forces are not passive contact/damping identification.
+    Internal _read_mode reads a mode's force CHANGE before applying its curve,
+    so pitch interpolation preserves the preload and the output clock.
     """
     gains = _partial_gains(force_gains, name='force_gains')
+    points = _partial_gain_points(force_gain_points, name='force_gain_points')
+    if points and all(g == 1 for row in points for g in row[1:]):
+        points = ()
+    controls = np.asarray(points) if points else None
     if (not np.isfinite(freq) or not np.isfinite(sr) or sr < 1000 or int(sr) != sr
             or not 0 < freq < sr*.44 or not isinstance(n, int) or n < 0):
         raise ValueError("invalid modal string frequency, sample rate or length")
@@ -70,11 +83,36 @@ def pluck_force(freq: float, n: int, sr: int, rng: np.random.Generator, *,
             amplitude[:controlled] *= gains[:controlled]
         loss = 1/decay+max(0, 1/upper-1/decay)*np.maximum(
             0, (hz*hz-fundamental*fundamental)/max(1, 4000**2-fundamental*fundamental))
-        static += weight*float(amplitude.sum())
-        for frequency, amp, rate in zip(hz, amplitude, loss, strict=True):
+        controlled = min(controls.shape[1]-1, len(amplitude)) if controls is not None else 0
+        if controlled:
+            initial = amplitude.copy()
+            initial[:controlled] *= controls[0, 1:controlled+1]
+            static += weight*float(initial.sum())
+        else:
+            static += weight*float(amplitude.sum())
+        remainder = []
+        for index, (frequency, amp, rate) in enumerate(zip(hz, amplitude, loss, strict=True)):
             omega = 2*np.pi*frequency
             gamma = np.log(1000)*rate
-            result += weight*amp*np.exp(-gamma*time)*(np.cos(omega*time)+gamma/omega*np.sin(omega*time))
+            if _read_mode is None:
+                partial = weight*amp*np.exp(-gamma*time)*(np.cos(omega*time)+gamma/omega*np.sin(omega*time))
+            elif index < controlled:
+                def change(m: int, a: float = weight*amp, w: float = omega, g: float = gamma) -> np.ndarray:
+                    t = np.arange(m)/sr
+                    return a*(np.exp(-g*t)*(np.cos(w*t)+g/w*np.sin(w*t))-1)
+                partial = _read_mode(change)+weight*amp
+            else:
+                remainder.append((weight*amp, omega, gamma))
+                continue
+            if index < controlled:
+                partial *= np.interp(time, controls[:, 0], controls[:, index+1])
+            result += partial
+        if remainder:
+            def remaining_change(m: int,
+                                 modes: tuple[tuple[float, float, float], ...] = tuple(remainder)) -> np.ndarray:
+                t = np.arange(m)/sr
+                return sum(a*(np.exp(-g*t)*(np.cos(w*t)+g/w*np.sin(w*t))-1) for a, w, g in modes)
+            result += _read_mode(remaining_change)+sum(a for a, _, _ in remainder)
     return result, static
 
 
@@ -88,6 +126,11 @@ def modal_acoustic_voice(instrument: AcousticGuitar, voice: Voice, ctx: RenderCo
     if ctx.sr < 4000:
         raise ValueError("modal acoustic body needs a sample rate of at least 4000 Hz")
     gains = _partial_gains(voice.params.get('force_gains', instrument.force_gains), name='force_gains')
+    points = _partial_gain_points(voice.params.get('force_gain_points', instrument.force_gain_points),
+                                 name='force_gain_points')
+    if points and all(g == 1 for row in points for g in row[1:]):
+        points = ()
+    changing_points = bool(points) and any(row[1:] != points[0][1:] for row in points[1:])
     gate = ctx.samples(voice.dur)
     count = ctx.samples(voice.dur+instrument.release_time())
     if gate == 0 or voice.vel <= 0 or instrument.level == 0:
@@ -109,16 +152,22 @@ def modal_acoustic_voice(instrument: AcousticGuitar, voice: Voice, ctx: RenderCo
     def string(freq: float) -> np.ndarray:
         static = 0.
 
-        def render(n: int) -> np.ndarray:
+        def render(n: int, reader: Callable[[Callable[[int], np.ndarray]], np.ndarray] | None = None) -> np.ndarray:
             nonlocal static
             raw, static = pluck_force(freq, n, ctx.sr, rng, pick=pick, hardness=hardness,
                 sustain=instrument.sustain, treble_decay=instrument.treble_decay,
                 prompt_decay=instrument.prompt_decay, polarization=instrument.polarization,
-                stiffness=stiffness, force_gains=gains)
+                stiffness=stiffness, force_gains=gains, force_gain_points=points, _read_mode=reader)
             return raw-static
 
-        change = (render(count) if curve is None else variable_rate_read(
-            render, curve, interpolation=voice.params.get("pitch_interpolation", "linear")))
+        interpolation = voice.params.get("pitch_interpolation", "linear")
+        if curve is not None and changing_points:
+            def read_mode(source: Callable[[int], np.ndarray]) -> np.ndarray:
+                return variable_rate_read(source, curve, interpolation=interpolation)
+            change = render(count, read_mode)
+        else:
+            change = (render(count) if curve is None else
+                      variable_rate_read(render, curve, interpolation=interpolation))
         envelope = _gate(gate, count, ctx.sr, instrument.release)
         envelope[:gate] = 1.  # held static load has no zero-state attack ramp
         signal = (change+static)*envelope-static
