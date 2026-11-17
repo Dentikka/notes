@@ -3,12 +3,13 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
+from scipy.linalg import eig, expm, solve
+
 from notes import ModalString, Note, Song, Track
 from notes.engine import RenderContext, Voice, build_instrument, render_score
 from notes.engine.mechanical_string import _initial_state, _output, _point, modal_string
 from notes.engine.palm_contact import _sample, _state, palm_string
 from notes.ir import Score
-from scipy.linalg import eig, expm, solve
 
 
 def model(*, resistance=.03, width=.06, peak=0., position=.11):
