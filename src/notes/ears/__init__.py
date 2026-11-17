@@ -10,6 +10,7 @@ from notes.ears.inharmonicity import InharmonicPartial, StringInharmonicity, str
 from notes.ears.mert import MertEar
 from notes.ears.note_profile import PartialDecay, harmonic_shape_distance, infer_expression_points, partial_decays
 from notes.ears.partial_envelopes import PartialEnvelopes, PartialGainFit, fit_partial_gains, partial_envelopes
+from notes.ears.percussion import BandPeakTrajectory, band_peak_trajectory, compare_peak_trajectories
 from notes.ears.polyphonic import TemplateTrack, notes_from_templates, template_track
 from notes.ears.texture import (
     InterharmonicEnergy,
@@ -30,6 +31,7 @@ __all__ = [
     "TEMPLATES",
     "VOCABULARY",
     "Comparison",
+    "BandPeakTrajectory",
     "AestheticsEar",
     "Ear",
     "FitResult",
@@ -46,6 +48,8 @@ __all__ = [
     "Tag",
     "TemplateTrack",
     "compare",
+    "band_peak_trajectory",
+    "compare_peak_trajectories",
     "cosine",
     "fit_loss",
     "fit_partial_gains",

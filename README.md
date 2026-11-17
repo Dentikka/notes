@@ -798,6 +798,16 @@ Longer per-note decays extend the renderer's allocation through
 both kits, even when attached to another MIDI pitch. A kick on a hat-numbered
 placeholder no longer chokes an open hat. Default voices retain their waveform.
 
+`notes.ears.band_peak_trajectory(audio, sr, band=(60, 220), windows=...)` measures
+dominant low-band peaks across specified clip windows, with contrast/relative
+level support and no phase output. `compare_peak_trajectories(reference, candidate)`
+rejects missing or mismatched supported target peaks, including moving ones.
+This can prevent a tom fit from matching an upper mode while losing the lower
+one despite a lower broadband loss. Supply isolated-onset mono audio covering
+all windows; no automatic alignment occurs. The descriptor identifies neither
+the fundamental nor a physical mode, and zero-padding is not extra resolution.
+A passing peak guard does not certify the rest of the spectrum or realism.
+
 `examples/reference_rock_kit.py` combines the reference-calibrated kick and a
 procedurally generated room with the unchanged baseline snare and hats. The
 alternative snare fit remains experimental rather than replacing the baseline.
