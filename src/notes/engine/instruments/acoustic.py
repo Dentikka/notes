@@ -9,6 +9,7 @@ import numpy as np
 from notes.engine.articulation import _partial_gains, pitch_curve, variable_rate_read
 from notes.engine.base import Effect, Instrument, RenderContext, Voice
 from notes.engine.dsp import delay, vel_gain
+from notes.engine.effects.body import _FIXED_LENGTH as _FIXED_BODY_TAIL
 from notes.engine.effects.body import _LENGTH as _BODY_TAIL
 from notes.engine.effects.body import Body
 from notes.engine.effects.tone import Filter
@@ -71,6 +72,10 @@ class AcousticGuitar(Instrument):
     polarizations. Missing gains are one. Constructor/per-note controls require
     model="modal". This is an empirical initial-shape correction, not measured
     excitation, output EQ, identified geometry or an accepted realism preset.
+    ``body_sampling="fixed"`` converts a single 44.1 kHz procedural body response
+    to the output rate with ~3 ms shared latency and a 257 ms tail. This prevents
+    the native noise texture from changing between analysis/render sample rates.
+    Available in waveguide/modal modes; coupled mechanics use their own body.
     """
 
     program: int | None = 25
@@ -100,6 +105,7 @@ class AcousticGuitar(Instrument):
     release: float = 0.08
     level: float = 0.25
     force_gains: tuple[float, ...] = ()
+    body_sampling: str = "native"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, 'force_gains', _partial_gains(self.force_gains, name='force_gains'))
@@ -109,6 +115,10 @@ class AcousticGuitar(Instrument):
             raise ValueError("dispersion_fit must be legacy or bracketed")
         if self.body_phase not in ("designed", "minimum"):
             raise ValueError("body_phase must be designed or minimum")
+        if self.body_sampling not in ("native", "fixed"):
+            raise ValueError("body_sampling must be native or fixed")
+        if self.model == "coupled" and self.body_sampling != "native":
+            raise ValueError('fixed body sampling requires model="waveguide" or "modal"')
         if self.model not in ("waveguide", "coupled", "modal"):
             raise ValueError("model must be waveguide, coupled or modal")
         if not np.isfinite(self.coupling) or self.coupling <= 0:
@@ -131,13 +141,15 @@ class AcousticGuitar(Instrument):
                 raise ValueError("course_detune must be finite")
 
     def release_time(self) -> float:
-        return self.release+_BODY_TAIL if self.model == "modal" else self.release
+        tail = _FIXED_BODY_TAIL if self.body_sampling == "fixed" else _BODY_TAIL
+        return self.release+tail if self.model == "modal" else self.release
 
     def inserts(self) -> tuple[Effect, ...]:
         if self.model in ("coupled", "modal"):
             return ()  # Body radiation is already part of each voice.
         return (Filter(kind="highpass", cutoff=60.0),
-                Body(size=self.body_size, diffuse=self.diffuse, mix=self.body, phase=self.body_phase))
+                Body(size=self.body_size, diffuse=self.diffuse, mix=self.body, phase=self.body_phase,
+                     sampling=self.body_sampling))
 
     def _string(self, freq: float, n: int, sr: int, hardness: float, curve, rng: np.random.Generator,
                 pick: float | None = None, length_scale: float = 1.0, interpolation: str = "linear") -> np.ndarray:

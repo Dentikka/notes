@@ -127,7 +127,7 @@ def modal_acoustic_voice(instrument: AcousticGuitar, voice: Voice, ctx: RenderCo
         wave = signal[None, :]
         for effect in (Filter(kind="highpass", cutoff=60.),
                        Body(size=instrument.body_size, diffuse=instrument.diffuse,
-                            mix=instrument.body, phase=instrument.body_phase)):
+                            mix=instrument.body, phase=instrument.body_phase, sampling=instrument.body_sampling)):
             wave = effect.process(wave, ctx)
         return wave[0]
 

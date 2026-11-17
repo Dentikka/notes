@@ -13,9 +13,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
+from math import gcd
 
 import numpy as np
-from scipy.signal import oaconvolve
+from scipy.signal import oaconvolve, resample_poly
 
 from notes.engine.base import Effect, RenderContext
 from notes.engine.dsp import filt
@@ -31,6 +32,9 @@ _MODES = (
 _LENGTH = 0.25  # s
 _DIFFUSE_T60 = 0.07  # s
 _SEED = 1969
+_REFERENCE_RATE = 44100
+_REFERENCE_GUARD = 132  # ~3 ms; retains both sides of the SRC antialias kernel.
+_FIXED_LENGTH = .257  # reference response + guards + one sample at >=4 kHz
 
 
 def _minimum_phase_ir(ir: np.ndarray) -> np.ndarray:
@@ -41,13 +45,20 @@ def _minimum_phase_ir(ir: np.ndarray) -> np.ndarray:
 
 
 @lru_cache(maxsize=16)
-def body_ir(sr: int, size: float = 1.0, diffuse: float = 0.8, phase: str = "designed") -> np.ndarray:
+def body_ir(sr: int, size: float = 1.0, diffuse: float = 0.8, phase: str = "designed",
+            sampling: str = "native") -> np.ndarray:
     """Body impulse response at `sr`: the modal ladder plus a diffuse noise decay at `diffuse`
     (relative level), unity gain at 1 kHz. Optional minimum phase concentrates
     energy earlier while approximately preserving the magnitude spectrum.
+    ``sampling="fixed"`` converts one 44.1 kHz designed response, retaining
+    a common ~3 ms causal latency rather than drawing a new noise texture.
     """
     if phase not in ("designed", "minimum"):
         raise ValueError("body phase must be designed or minimum")
+    if sampling not in ("native", "fixed"):
+        raise ValueError("body sampling must be native or fixed")
+    if sampling == "fixed":
+        return _fixed_body_ir(sr, size, diffuse, phase, 1.)
     n = int(_LENGTH * sr)
     t = np.arange(n) / sr
     ir = np.zeros(n)
@@ -71,6 +82,27 @@ def body_ir(sr: int, size: float = 1.0, diffuse: float = 0.8, phase: str = "desi
     return ir
 
 
+@lru_cache(maxsize=16)
+def _fixed_body_ir(sr: int, size: float, diffuse: float, phase: str, mix: float) -> np.ndarray:
+    """Convert a complete reference filter, retaining a shared causal delay.
+
+    The sample-density factor is needed for a discrete impulse response (unlike
+    an audio waveform). Do not cut the SRC filter at its peak or normalize each
+    output rate separately: that would change the reference gain and phase.
+    """
+    if not np.isfinite(sr) or int(sr) != sr or sr < 4000:
+        raise ValueError("fixed body sampling needs an integer rate of at least 4000 Hz")
+    ir = body_ir(_REFERENCE_RATE, size, diffuse).copy()*mix
+    ir[0] += 1.-mix
+    if phase == "minimum":
+        ir = _minimum_phase_ir(ir)
+    ir = np.pad(ir, (_REFERENCE_GUARD, _REFERENCE_GUARD))
+    if sr == _REFERENCE_RATE:
+        return ir
+    divisor = gcd(int(sr), _REFERENCE_RATE)
+    return resample_poly(ir, int(sr)//divisor, _REFERENCE_RATE//divisor)*(_REFERENCE_RATE/sr)
+
+
 @register_effect("body")
 @dataclass(frozen=True, kw_only=True)
 class Body(Effect):
@@ -79,22 +111,31 @@ class Body(Effect):
     the body (0: the bare string, as a piezo pickup hears it). ``phase="minimum"``
     concentrates the complete dry/wet response earlier while retaining its magnitude;
     ``phase="designed"`` preserves the original response.
+    ``sampling="fixed"`` keeps one 44.1 kHz filter across output rates, including
+    the dry/wet mixture and phase choice. It adds ~3 ms latency even at mix=0;
+    its tail allocation is 257 ms. ``"native"`` preserves previous renders.
     """
 
     size: float = 1.0
     diffuse: float = 0.8
     mix: float = 1.0
     phase: str = "designed"
+    sampling: str = "native"
 
     def __post_init__(self) -> None:
         if self.phase not in ("designed", "minimum"):
             raise ValueError("body phase must be designed or minimum")
+        if self.sampling not in ("native", "fixed"):
+            raise ValueError("body sampling must be native or fixed")
 
     def tail(self, ctx: RenderContext) -> float:
-        return _LENGTH
+        return _FIXED_LENGTH if self.sampling == "fixed" else _LENGTH
 
     def process(self, x: np.ndarray, ctx: RenderContext) -> np.ndarray:
         size, diffuse = round(float(self.size), 4), round(float(self.diffuse), 4)
+        if self.sampling == "fixed":
+            ir = _fixed_body_ir(ctx.sr, size, diffuse, self.phase, self.mix)
+            return oaconvolve(x, ir.reshape((1,) * (x.ndim - 1) + (-1,)), axes=-1)[..., :x.shape[-1]]
         if self.phase == "minimum":
             if self.mix == 1.0:
                 ir = body_ir(ctx.sr, size, diffuse, "minimum")
