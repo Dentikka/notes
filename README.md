@@ -832,6 +832,17 @@ not recorded carriers, identified pickup geometry or a new accepted preset.
 Empty or identity gains preserve the previous output. Reference-conditioned
 gains must be validated on other notes/strikes before claiming transfer.
 
+`notes.ears.fit_partial_gains(reference_envelopes, candidate_envelopes)` estimates
+static shape controls for corresponding mode indices. First call
+`partial_envelopes` on each signal using its own supported frequencies/ratios;
+forcing the recording onto the synthesizer's frequencies can bias magnitudes.
+The measurements need equal mode counts and identical frame clocks. The result
+contains a tuple of bounded `gains` plus support/clipping diagnostics, suitable
+for `ModalString(partial_gains=fit.gains)` or a note's `partial_gains` parameter.
+It fits normalized spectral shape, not loudness, tuning, recorded phases or a
+transferable preset. Unsupported reference estimates use a white-noise bound,
+which is not a general noise classifier.
+
 For muted notes, optional `palm_resistance` enables a passive distributed viscous
 contact instead of scalar `mute_decay`. None retains the original source; zero
 selects contact mechanics with no additional damping. `palm_position` and
