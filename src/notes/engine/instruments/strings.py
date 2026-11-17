@@ -185,7 +185,10 @@ class ElectricGuitar(Instrument):
     the original waveform; both use the same two-allpass dispersion model.
 
     Per-note parameters: ``palm_mute=True`` for chugs that ring `mute_decay` seconds (T60)
-    with the pluck softened to `mute_brightness`; ``legato=True`` for a note sounded by the
+    with the pluck softened to `mute_brightness`. Per-note ``mute_decay`` (positive
+    seconds) and ``mute_brightness`` (0..1) override those controls and require
+    ``palm_mute=True``; they prescribe losses/excitation, not a physical palm contact.
+    ``legato=True`` for a note sounded by the
     fretting hand (hammer-on, pull-off, the end of a slide): no pick click, a softer and
     quieter start, no pitch kick; ``string=1..6`` (high e to low E) for which string a note
     is on, otherwise wound below G3; and ``vibrato``, ``bend``, ``slide`` (see
@@ -261,7 +264,21 @@ class ElectricGuitar(Instrument):
         stiffness = _note_stiffness(v, self.stiffness)
         muted = bool(v.params.get("palm_mute", False))
         legato = bool(v.params.get("legato", False))
-        t60 = self.mute_decay if muted else _t60(self.sustain, v.freq)
+        mute_decay, mute_brightness = self.mute_decay, self.mute_brightness
+        for name in ("mute_decay", "mute_brightness"):
+            if name not in v.params:
+                continue
+            if not muted:
+                raise ValueError(f"per-note {name} requires palm_mute=True")
+            value = float(v.params[name])
+            if not np.isfinite(value) or (value <= 0 if name == "mute_decay" else not 0 <= value <= 1):
+                bound = "positive" if name == "mute_decay" else "between 0 and 1"
+                raise ValueError(f"per-note {name} must be finite and {bound}")
+            if name == "mute_decay":
+                mute_decay = value
+            else:
+                mute_brightness = value
+        t60 = mute_decay if muted else _t60(self.sustain, v.freq)
         t60_high = min(self.treble_decay, 0.3 * t60) if muted else self.treble_decay
         pick_position = float(v.params.get("pick_position", self.pick_position))
         pick_hardness = float(v.params.get("pick_hardness", self.brightness))
@@ -269,7 +286,7 @@ class ElectricGuitar(Instrument):
             raise ValueError("per-note pick_position must be finite and between 0 and 1")
         if "pick_hardness" in v.params and (not np.isfinite(pick_hardness) or not 0 <= pick_hardness <= 1):
             raise ValueError("per-note pick_hardness must be finite and between 0 and 1")
-        hardness = pick_hardness * (self.mute_brightness if muted else 1.0) * (_LEGATO_SOFTNESS if legato else 1.0)
+        hardness = pick_hardness * (mute_brightness if muted else 1.0) * (_LEGATO_SOFTNESS if legato else 1.0)
         hardness *= 1.0 - self.velocity_brightness * (1.0 - v.vel)
         string = v.params.get("string")
         if (string in _WOUND_STRINGS) if string is not None else v.pitch < _LOWEST_PLAIN:
