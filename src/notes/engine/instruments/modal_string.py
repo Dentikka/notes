@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from notes.engine.articulation import pitch_curve
+from notes.engine.articulation import _partial_gains, pitch_curve
 from notes.engine.base import Effect, Instrument, RenderContext, Voice
 from notes.engine.dsp import vel_gain
 from notes.engine.effects.tone import Filter
@@ -41,6 +41,11 @@ class ModalString(Instrument):
     ``pick_cutoff`` optionally overrides the hardness-derived force bandwidth;
     ``pluck_rounding`` selects spatial or release rounding. Defaults retain
     the original source. Neither this source nor a fit certifies timbre realism.
+    ``partial_gains`` optionally supplies up to 80 gains in [0, 16] for the
+    physical string-coordinate readouts; unspecified gains are one. It also
+    accepts per-note overrides. It changes neither contact nor initial state,
+    and leaves the bridge readout unchanged. This empirical static spectral
+    control does not represent identified excitation or recorded carriers.
 
     This experimental direct source has no amp/cabinet. It currently supports
     steady pitches; time-varying bends, slides and vibrato raise ValueError.
@@ -61,6 +66,7 @@ class ModalString(Instrument):
     brightness: float = .7
     pick_cutoff: float | None = None
     pluck_rounding: str = 'release'
+    partial_gains: tuple[float, ...] = ()
     pickup_position: float = .06
     pickup_width: float = .04
     coil_spacing: float = 0.
@@ -79,6 +85,7 @@ class ModalString(Instrument):
     level: float = .5
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, 'partial_gains', _partial_gains(self.partial_gains))
         if not isinstance(self.modes, int) or isinstance(self.modes, bool) or not 8 <= self.modes <= 128:
             raise ValueError('modes must be an integer from 8 to 128')
         for name in ('bridge_hz', 'bridge_q', 'tension', 'length', 'sustain', 'treble_decay',
@@ -166,7 +173,8 @@ class ModalString(Instrument):
             pick=pick, pickup=self.pickup_position/scale, width=self.pickup_width/scale,
             spacing=self.coil_spacing/scale, cutoff=cutoff, rounding=self.pluck_rounding,
             release_motion=motion, palm_resistance=resistance, palm_position=position,
-            palm_width=contact_width, mechanical_band=self.mechanical_band)
+            palm_width=contact_width, mechanical_band=self.mechanical_band,
+            partial_gains=v.params.get('partial_gains', self.partial_gains))
         wave *= self.pluck_force
         if legato:
             wave *= _LEGATO_LEVEL
