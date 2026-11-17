@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from notes.engine.articulation import pitch_curve, variable_rate_read
+from notes.engine.articulation import _partial_gains, pitch_curve, variable_rate_read
 from notes.engine.base import Effect, Instrument, RenderContext, Voice
 from notes.engine.dsp import delay, vel_gain
 from notes.engine.effects.body import _LENGTH as _BODY_TAIL
@@ -66,6 +66,11 @@ class AcousticGuitar(Instrument):
     are prescribed, not coupled to body mobility. ``excitation`` and
     ``dispersion_fit`` do not affect this mode; it uses exact modal frequencies.
     Per-note ``stiffness`` may override its inharmonicity coefficient.
+    Optional ``force_gains`` supplies up to 80 nonnegative gains (0..16) for the
+    initial modal force harmonics, including the body's static preload and both
+    polarizations. Missing gains are one. Constructor/per-note controls require
+    model="modal". This is an empirical initial-shape correction, not measured
+    excitation, output EQ, identified geometry or an accepted realism preset.
     """
 
     program: int | None = 25
@@ -94,8 +99,12 @@ class AcousticGuitar(Instrument):
     pick_noise: float = 0.15
     release: float = 0.08
     level: float = 0.25
+    force_gains: tuple[float, ...] = ()
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, 'force_gains', _partial_gains(self.force_gains, name='force_gains'))
+        if self.force_gains and self.model != 'modal':
+            raise ValueError('force_gains requires model="modal"')
         if self.dispersion_fit not in ("legacy", "bracketed"):
             raise ValueError("dispersion_fit must be legacy or bracketed")
         if self.body_phase not in ("designed", "minimum"):
@@ -166,6 +175,8 @@ class AcousticGuitar(Instrument):
             from notes.engine.modal_acoustic import modal_acoustic_voice
 
             return modal_acoustic_voice(self, v, ctx, rng)
+        if 'force_gains' in v.params and _partial_gains(v.params['force_gains'], name='force_gains'):
+            raise ValueError('force_gains requires model="modal"')
         sr = ctx.sr
         legato = bool(v.params.get("legato", False))
         gate = ctx.samples(v.dur)

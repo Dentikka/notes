@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from notes.engine.articulation import pitch_curve, variable_rate_read
+from notes.engine.articulation import _partial_gains, pitch_curve, variable_rate_read
 from notes.engine.base import RenderContext, Voice
 from notes.engine.dsp import delay, vel_gain
 from notes.engine.effects.body import Body
@@ -24,12 +24,16 @@ def pluck_force(freq: float, n: int, sr: int, rng: np.random.Generator, *,
                 pick: float = .18, hardness: float = .9, sustain: float = 7.,
                 treble_decay: float = 3., prompt_decay: float = 0.,
                 polarization: float = .3, stiffness: float = 4e-5,
-                roughness: float = .03) -> tuple[np.ndarray, float]:
+                roughness: float = .03, force_gains: tuple[float, ...] = ()) -> tuple[np.ndarray, float]:
     """Bridge force and its initial static load for a released deflected string.
 
     Each damped mode starts at its displacement maximum with zero velocity.
     The small initial-shape roughness is generated, not a sampled pick attack.
+    Optional force_gains scales the first physical force harmonics of both
+    polarizations, including their summed static load. Unspecified gains are one;
+    these empirical initial-shape controls do not identify a point pluck.
     """
+    gains = _partial_gains(force_gains, name='force_gains')
     if (not np.isfinite(freq) or not np.isfinite(sr) or sr < 1000 or int(sr) != sr
             or not 0 < freq < sr*.44 or not isinstance(n, int) or n < 0):
         raise ValueError("invalid modal string frequency, sample rate or length")
@@ -61,6 +65,9 @@ def pluck_force(freq: float, n: int, sr: int, rng: np.random.Generator, *,
         h, hz = h[use], hz[use]
         amplitude = 2/np.pi*(np.sin(np.pi*h*pick)+roughness*rng.uniform(-1, 1, len(h)))/h
         amplitude /= 1+(hz/cutoff)**2
+        if gains:
+            controlled = min(len(gains), len(amplitude))
+            amplitude[:controlled] *= gains[:controlled]
         loss = 1/decay+max(0, 1/upper-1/decay)*np.maximum(
             0, (hz*hz-fundamental*fundamental)/max(1, 4000**2-fundamental*fundamental))
         static += weight*float(amplitude.sum())
@@ -80,6 +87,7 @@ def modal_acoustic_voice(instrument: AcousticGuitar, voice: Voice, ctx: RenderCo
     """
     if ctx.sr < 4000:
         raise ValueError("modal acoustic body needs a sample rate of at least 4000 Hz")
+    gains = _partial_gains(voice.params.get('force_gains', instrument.force_gains), name='force_gains')
     gate = ctx.samples(voice.dur)
     count = ctx.samples(voice.dur+instrument.release_time())
     if gate == 0 or voice.vel <= 0 or instrument.level == 0:
@@ -106,7 +114,7 @@ def modal_acoustic_voice(instrument: AcousticGuitar, voice: Voice, ctx: RenderCo
             raw, static = pluck_force(freq, n, ctx.sr, rng, pick=pick, hardness=hardness,
                 sustain=instrument.sustain, treble_decay=instrument.treble_decay,
                 prompt_decay=instrument.prompt_decay, polarization=instrument.polarization,
-                stiffness=stiffness)
+                stiffness=stiffness, force_gains=gains)
             return raw-static
 
         change = (render(count) if curve is None else variable_rate_read(
