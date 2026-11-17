@@ -27,6 +27,67 @@ class PartialEnvelopes:
     sample_rate: int
 
 
+@dataclass(frozen=True)
+class PartialGainFit:
+    """Bounded static shape controls and the support used to estimate them."""
+
+    gains: tuple[float, ...]
+    used_frames: int
+    supported_cells: int
+    total_cells: int
+    upper_clipped_cells: int
+
+
+def fit_partial_gains(reference: PartialEnvelopes, candidate: PartialEnvelopes, *,
+                      start: float = .2, end: float = 1.2) -> PartialGainFit:
+    """Estimate static readout gains from corresponding modal magnitudes.
+
+    Measure each signal on its own supported frequency trajectory/ratios using
+    ``partial_envelopes`` first. Equal-length mode lists must correspond by index;
+    their frequencies need not coincide. Frame clocks must match exactly.
+
+    Each frame is normalized by harmonic L2 amplitude, so this fits shape rather
+    than loudness. Unsupported reference magnitudes are bounded by four white
+    coefficient floors or the candidate amplitude, whichever is smaller. This
+    floor is not a general tone/noise classifier. Use at least five frames with
+    three supported reference modes (or all modes when fewer than three exist).
+    Median frame ratios are bounded to [0, 16] for ``ModalString.partial_gains``.
+    No recorded phase/carrier is returned; conditional fit is not transfer proof.
+    """
+    if not np.isfinite([start, end]).all() or start < 0 or end <= start:
+        raise ValueError('partial gain window needs increasing nonnegative seconds')
+    for profile in (reference, candidate):
+        t, a, floor = profile.time, profile.amplitude, profile.white_noise_floor
+        if (t.ndim != 1 or not len(t) or not np.isfinite(t).all() or t[0] < 0
+                or np.any(np.diff(t) <= 0) or a.ndim != 2 or a.shape[0] != len(t)
+                or not 1 <= a.shape[1] <= 80 or len(profile.ratios) != a.shape[1]
+                or floor.shape != a.shape or profile.above_white_noise_floor.shape != a.shape
+                or not np.isfinite(a).all() or not np.isfinite(floor).all()
+                or np.any(a < 0) or np.any(floor < 0)):
+            raise ValueError('partial gain fit needs valid finite nonnegative envelope arrays')
+    if (reference.amplitude.shape != candidate.amplitude.shape
+            or not np.array_equal(reference.time, candidate.time)):
+        raise ValueError('partial gain fit needs corresponding modes and identical frame clocks')
+    if end > reference.time[-1]:
+        raise ValueError('partial gain window exceeds measured frames')
+    target = np.where(reference.above_white_noise_floor, reference.amplitude,
+                      np.minimum(candidate.amplitude, 4*reference.white_noise_floor))
+    target_norm = np.linalg.norm(target, axis=1)
+    source_norm = np.linalg.norm(candidate.amplitude, axis=1)
+    active = ((reference.time >= start) & (reference.time <= end)
+              & (reference.above_white_noise_floor.sum(axis=1) >= min(3, target.shape[1]))
+              & (target_norm > 1e-20) & (source_norm > 1e-20))
+    if active.sum() < 5:
+        raise ValueError('partial gain fit needs at least five supported frames')
+    a = target[active]/target_norm[active, None]
+    b = candidate.amplitude[active]/source_norm[active, None]
+    ratios = a/np.maximum(b, 1e-6)
+    gains = np.median(np.clip(ratios, 0., 16.), axis=0)
+    return PartialGainFit(tuple(float(x) for x in gains), int(active.sum()),
+                          int(reference.above_white_noise_floor[active].sum()), int(ratios.size),
+                          int(np.sum(ratios > 16)))
+
+
 def partial_envelopes(audio: np.ndarray, sr: int, fundamental_hz: float | np.ndarray, *,
                       partials: int | Sequence[float] = 20, step: float = .04,
                       minimum_window: float = .08, cycles: float = 6.) -> PartialEnvelopes:

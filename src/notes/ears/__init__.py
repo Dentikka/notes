@@ -9,7 +9,7 @@ from notes.ears.idmt import idmt_music
 from notes.ears.inharmonicity import InharmonicPartial, StringInharmonicity, string_inharmonicity
 from notes.ears.mert import MertEar
 from notes.ears.note_profile import PartialDecay, harmonic_shape_distance, infer_expression_points, partial_decays
-from notes.ears.partial_envelopes import PartialEnvelopes, partial_envelopes
+from notes.ears.partial_envelopes import PartialEnvelopes, PartialGainFit, fit_partial_gains, partial_envelopes
 from notes.ears.polyphonic import TemplateTrack, notes_from_templates, template_track
 from notes.ears.texture import (
     InterharmonicEnergy,
@@ -39,6 +39,7 @@ __all__ = [
     "MertEar",
     "PartialDecay",
     "PartialEnvelopes",
+    "PartialGainFit",
     "RoughnessEstimate",
     "TextureFitResult",
     "StringInharmonicity",
@@ -47,6 +48,7 @@ __all__ = [
     "compare",
     "cosine",
     "fit_loss",
+    "fit_partial_gains",
     "fetch_aesthetics",
     "fit_reference",
     "fit_roughness",
