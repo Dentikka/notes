@@ -497,6 +497,14 @@ Frozen controls improved several diagnostics on new rapid Disklavier sequences
 at quiet and loud dynamics, but isolated-note regressions and incorrect quiet
 levels remain. The listening-approved palette is not replaced.
 
+`examples/quiet_piano_response.py` demonstrates a lower-velocity hammer-speed
+taper using note controls, plus an energy-matched `source_gain_db` comparison.
+Its `build_song(mode)` accepts `baseline`, `balanced`, or `gain_control`.
+The gain is computed from procedural string previews, without reference audio.
+On fresh shorter-gate P/M performances the balanced variant reduced register
+contrast MAE from 6.50 to 2.07 dB, but quiet-fragment MERT improved only 4/8;
+the calibration knee and near-bound taper remain experimental, not a new preset.
+
 The listening-approved piano palette uses `Piano(model="hammer_damped")`.
 `attack_presence=0.6` optionally lifts upper-register partials only during the onset
 (time constant 60 ms); C4 and below and the late tail retain the original source.
