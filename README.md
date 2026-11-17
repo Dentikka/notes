@@ -823,6 +823,25 @@ releases a held pluck; +/-1 begins at zero deflection with opposite velocities.
 Velocity scales energy independently. `pluck_force` sets the model's effective
 pull; `level` converts mechanical velocity to DSP amplitude.
 
+For muted notes, optional `palm_resistance` enables a passive distributed viscous
+contact instead of scalar `mute_decay`. None retains the original source; zero
+selects contact mechanics with no additional damping. `palm_position` and
+`palm_width` describe its region along the open string (vibrating length when
+fretting is disabled); resistance is an effective N*s/m. These three controls
+also accept note overrides requiring `palm_mute=True`. Contact uses intrinsic
+`sustain`/`treble_decay`; it does not combine with scalar `mute_decay`.
+`mechanical_band` fixes the physical modal band independently of output rate,
+bounded by `modes`; low rates use an oversampled observation and decimation.
+Real overdamped poles are retained. `pick_cutoff` optionally specifies the force
+bandwidth in Hz instead of deriving it from hardness; `pluck_rounding` selects
+`"spatial"` or `"release"` (the default). `pick_cutoff` also accepts note overrides.
+
+`examples/palm_contact_guitar.py` demonstrates the new procedural source with
+scalar controls, without loading audio. It is an experimental DI profile, not a
+replacement for the accepted guitar palette. The fixed-bridge contact prototype
+improved several metrics on fresh G3 recordings, but some comparisons regress;
+realism, other registers and amplified-riff transfer remain unproven.
+
 Per-note `release_motion`, `bridge_scale=0..1`, `pick_position`, `pick_hardness`
 and effective `stiffness` control individual strokes. `fretting=True` uses guitar
 string/fret geometry. `modes=8..128` bounds the basis; only modes in the audio band
