@@ -485,6 +485,18 @@ frequency-dependent losses above A2, preserving the A2-and-below hammer source.
 It addresses overtone dominance measured in the first hammer model; it is not a
 full soundboard simulation or an established realism improvement.
 
+The contact models optionally add a procedural nonharmonic attack with
+`impact_gain` (default zero), `impact_decay` (T60 at 200 Hz), `impact_color`,
+`impact_velocity_power` and `impact_delay` (seconds). Each accepts a per-note
+override; the instrument's configured sustain/release must accommodate its tail.
+The designed modal response is excited by a seeded synthetic positive pulse,
+after string damping. No recorded noise or measured impulse response is loaded,
+and this component is not an energy-coupled or identified piano-action model.
+`examples/piano_impact.py` demonstrates the optional contact/impact profile.
+Frozen controls improved several diagnostics on new rapid Disklavier sequences
+at quiet and loud dynamics, but isolated-note regressions and incorrect quiet
+levels remain. The listening-approved palette is not replaced.
+
 The listening-approved piano palette uses `Piano(model="hammer_damped")`.
 `attack_presence=0.6` optionally lifts upper-register partials only during the onset
 (time constant 60 ms); C4 and below and the late tail retain the original source.
