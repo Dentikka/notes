@@ -109,6 +109,11 @@ class DrumKit(Instrument):
     def choke_groups(self) -> Mapping[int, str]:
         return {42: "hat", 44: "hat", 46: "hat"}
 
+    def choke_group_for(self, pitch: float, params: Mapping[str, object]) -> str | None:
+        if params.get('sound'):
+            return 'hat' if params['sound'] in ('hat', 'pedal_hat', 'open_hat') else None
+        return super().choke_group_for(pitch, params)
+
     def _sounds(self, sr: int) -> dict[str, tuple[Callable[[np.random.Generator], np.ndarray], float]]:
         k, d = 2.0 ** (self.tune / 12.0), self.decay
         return {

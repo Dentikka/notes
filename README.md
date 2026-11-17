@@ -788,6 +788,16 @@ flag concerns diagnostic features only, not perceptual realism.
 and the second-head share of the kick model. Defaults preserve the existing kit;
 these are procedural modal parameters, not recorded samples.
 
+`RockKit` also accepts absolute per-note `tune` (semitones) and `decay` overrides,
+for example `Note(51, 0.1).param(tune=-6, decay=2)`. One kit track can therefore
+tune each drum/cymbal independently. Tune/decay are unsupported on rim and pedal
+hat; clap supports decay only. Invalid or ignored controls raise an error.
+Longer per-note decays extend the renderer's allocation through
+`Instrument.release_time_for(params)`; note times and gates remain unchanged.
+`sound="hat"/"open_hat"/"pedal_hat"` aliases now choke by their actual sound in
+both kits, even when attached to another MIDI pitch. A kick on a hat-numbered
+placeholder no longer chokes an open hat. Default voices retain their waveform.
+
 `examples/reference_rock_kit.py` combines the reference-calibrated kick and a
 procedurally generated room with the unchanged baseline snare and hats. The
 alternative snare fit remains experimental rather than replacing the baseline.
