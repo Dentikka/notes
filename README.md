@@ -701,6 +701,22 @@ notes are not retriggered at a crop boundary. Only musical control data enter th
 renderer; recorded audio remains an evaluation input. Annotation fidelity does not
 establish the realism of the resulting timbre.
 
+`notes.ears.idmt_music("annotation.xml", velocity=.7)` imports the supported
+picked/muted, normal-expression subset of [IDMT-SMT-Guitar](https://zenodo.org/records/7544110)
+at BPM 60. Decimal XML times become exact rational beats; source strings 1..6
+(low to high) become DSL strings 6..1. Pitch/fret/tuning inconsistencies and
+unsupported articulations raise. Acoustic offsets become approximate gates;
+they are not measured finger-release times, and no audio latency is corrected.
+Only annotation data are read, never the recorded audio. For a direct-source
+comparison, bind the result to `ElectricGuitar(amplified=False, fretting=True)`.
+
+Muted electric-guitar notes accept per-note losses/excitation controls:
+`Note("D3").param(palm_mute=True, mute_decay=1.2, mute_brightness=.6)`.
+`mute_decay` is positive seconds and `mute_brightness` is 0..1; both require
+`palm_mute=True`. They override the existing instrument controls for that note,
+without changing the defaults or modeling a physical palm/string contact.
+Varying decay does not fix a missing or mistimed attack.
+
 Note-audit metric version 2 uses the union of audible reference and candidate
 partials, so synthesized extra harmonics are penalized. A separate full-band
 spectral error also catches energy outside the analysed harmonic range. Version 1
