@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import importlib
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, replace
 from fractions import Fraction
@@ -47,11 +47,12 @@ class RenderResult:
         return write_wav(path, self.audio, self.sample_rate, bits, seed=int(self.stats.get("seed", 0)))
 
 
-def _choke_cuts(groups: Mapping[int, str], events: Sequence[NoteEvent]) -> dict[int, Fraction]:
+def _choke_cuts(groups: Mapping[int, str], events: Sequence[NoteEvent], *,
+                group_for: Callable[[NoteEvent], str | None] | None = None) -> dict[int, Fraction]:
     """Index of each note that is cut short -> beat at which the next note of its group starts."""
     members: dict[str, list[int]] = {}
     for i, e in enumerate(events):
-        group = groups.get(int(round(e.pitch)))
+        group = groups.get(int(round(e.pitch))) if group_for is None else group_for(e)
         if group is not None:
             members.setdefault(group, []).append(i)
     cuts: dict[int, Fraction] = {}
@@ -74,7 +75,8 @@ def _render_voices(
 ) -> np.ndarray:
     """Sum of all voices into a buffer of `n` samples that starts `offset` samples into the song."""
     out = np.zeros(n)
-    cuts = _choke_cuts(instrument.choke_groups(), events)
+    cuts = _choke_cuts(instrument.choke_groups(), events,
+                       group_for=lambda event: instrument.choke_group_for(event.pitch, dict(event.params)))
     seen: dict[tuple[Fraction, float], int] = {}
     for i, e in enumerate(events):
         start_s = tempo.seconds(e.time)
@@ -144,7 +146,8 @@ def _render_track(score: Score, name: str) -> tuple[int, np.ndarray, dict[str, A
     instrument = build_instrument(spec.instrument)
     inserts = instrument.inserts()
     effects = [build_effect(f) for f in spec.fx]
-    tail = instrument.release_time() + sum(f.tail(ctx) for f in (*inserts, *effects)) + 0.05
+    release = max((instrument.release_time_for(dict(e.params)) for e in events), default=instrument.release_time())
+    tail = release + sum(f.tail(ctx) for f in (*inserts, *effects)) + 0.05
     first = min((tempo.seconds(e.time) for e in events), default=0.0)
     last = max((tempo.seconds(e.end) for e in events), default=0.0)
     offset = ctx.samples(first)

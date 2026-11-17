@@ -9,7 +9,7 @@ a harder hit is brighter, clicks more and starts sharper in pitch.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -143,6 +143,12 @@ class RockKit(Instrument):
     shapes the timbre; closed hats choke the open hat. `kick_damping` controls
     frequency-dependent losses of the kick head; `kick_body` its second-head share.
     Defaults retain the original kit.
+    Per-note ``tune`` and ``decay`` override their absolute instrument values,
+    so one track can tune each drum independently while sharing hat chokes.
+    Tune is supported on pitched heads/cymbals/cowbell; decay also on clap.
+    Rim and pedal hat do not expose these controls. Longer per-note decays
+    extend the render tail without changing note times. Sound-name overrides
+    resolve choke groups from the actual sound rather than the placeholder pitch.
     """
 
     program: int | None = 0
@@ -156,6 +162,10 @@ class RockKit(Instrument):
     level: float = 0.9
 
     def __post_init__(self) -> None:
+        if not np.isfinite(self.tune):
+            raise ValueError('tune must be finite')
+        if not np.isfinite(self.decay) or self.decay <= 0:
+            raise ValueError('decay must be finite and positive')
         if not np.isfinite(self.kick_damping) or self.kick_damping <= 0:
             raise ValueError("kick_damping must be finite and positive")
         if not np.isfinite(self.kick_body) or self.kick_body < 0:
@@ -164,8 +174,32 @@ class RockKit(Instrument):
     def release_time(self) -> float:
         return 4.5 * self.decay + 0.1  # sounds ignore the gate; the crash rings longest
 
+    @staticmethod
+    def _note_controls(params: Mapping[str, object]) -> dict[str, float]:
+        controls = {}
+        for name in ('tune', 'decay'):
+            if name not in params:
+                continue
+            try:
+                value = float(params[name])
+            except (TypeError, ValueError) as error:
+                raise ValueError(f'per-note {name} must be finite') from error
+            if not np.isfinite(value) or (name == 'decay' and value <= 0):
+                raise ValueError(f'per-note {name} must be finite; decay must be positive')
+            controls[name] = value
+        return controls
+
+    def release_time_for(self, params: Mapping[str, object]) -> float:
+        controls = self._note_controls(params)
+        return 4.5*controls['decay']+.1 if 'decay' in controls else self.release_time()
+
     def choke_groups(self) -> Mapping[int, str]:
         return {42: "hat", 44: "hat", 46: "hat"}
+
+    def choke_group_for(self, pitch: float, params: Mapping[str, object]) -> str | None:
+        if params.get('sound'):
+            return 'hat' if params['sound'] in ('hat', 'pedal_hat', 'open_hat') else None
+        return super().choke_group_for(pitch, params)
 
     def _sounds(self, sr: int, vel: float) -> dict[str, tuple[Callable[[np.random.Generator], np.ndarray], float]]:
         k, d = 2.0 ** (self.tune / 12.0), self.decay
@@ -187,7 +221,13 @@ class RockKit(Instrument):
 
     def voice(self, v: Voice, ctx: RenderContext, rng: np.random.Generator) -> np.ndarray:
         name = v.params.get("sound") or GM_DRUM_NAMES.get(int(round(v.pitch)))
-        sounds = self._sounds(ctx.sr, float(np.clip(v.vel, 0.0, 1.0)))
+        controls = self._note_controls(v.params)
+        if 'tune' in controls and name in ('rim', 'pedal_hat', 'clap'):
+            raise ValueError(f'per-note tune is unsupported for {name}')
+        if 'decay' in controls and name in ('rim', 'pedal_hat'):
+            raise ValueError(f'per-note decay is unsupported for {name}')
+        kit = replace(self, **controls) if controls else self
+        sounds = kit._sounds(ctx.sr, float(np.clip(v.vel, 0.0, 1.0)))
         if name not in sounds:
             raise ValueError(f"The rock kit has no sound for {name or v.pitch!r}; sounds: {', '.join(sounds)}")
         make, peak = sounds[name]

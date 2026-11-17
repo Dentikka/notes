@@ -65,6 +65,14 @@ class Instrument(_Spec):
         """Seconds a voice may ring after its gate closes."""
         return 0.05
 
+    def release_time_for(self, params: Mapping[str, object]) -> float:
+        """Tail bound for note parameters; the default retains release_time().
+
+        This allocates render space, without changing the score's gate or tempo.
+        Instruments with per-note decay controls must account for them here.
+        """
+        return self.release_time()
+
     def inserts(self) -> tuple[Effect, ...]:
         """Effects wired into the instrument itself (e.g. a guitar amp), applied to the voice sum."""
         return ()
@@ -72,6 +80,10 @@ class Instrument(_Spec):
     def choke_groups(self) -> Mapping[int, str]:
         """Pitch -> group; a new note in a group cuts the ringing ones (open vs closed hat)."""
         return {}
+
+    def choke_group_for(self, pitch: float, params: Mapping[str, object]) -> str | None:
+        """Resolve a note's choke group; default uses the existing pitch map."""
+        return self.choke_groups().get(int(round(pitch)))
 
 
 @dataclass(frozen=True, kw_only=True)
