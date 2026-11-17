@@ -638,6 +638,16 @@ No recorded excitation or phase is loaded. Conditional gains improved four
 isolated-note fits, but interpolating them by pitch did not transfer reliably;
 they do not identify pluck geometry or replace the accepted guitar palette.
 
+For calibration across output rates, opt into `body_sampling="fixed"` on
+waveguide/modal acoustic guitars, or `Body(sampling="fixed")`. This converts one
+44.1 kHz procedural response instead of drawing a different dense noise texture
+at each rate. The complete dry/wet response and phase choice share a causal
+132/44100-second delay (about 3 ms, even at mix=0) and a 257 ms tail allocation.
+The conversion preserves filter gain rather than renormalizing each rate.
+Rates below 4 kHz and the coupled mechanical model are unsupported in this mode.
+The default `"native"` keeps previous renders. This fixes cross-rate consistency;
+it does not establish a more realistic body or validate old fitted coefficients.
+
 The waveguide/modal acoustic body can optionally use `body_phase="minimum"`
 (`Body(phase="minimum")` as an effect). This moves energy toward the start of the
 mathematically designed body response, approximately retaining its magnitude
