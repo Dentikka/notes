@@ -134,7 +134,9 @@ def modal_string(freq: float, n: int, sr: int, *, pick: float = .15, pickup: flo
                  cutoff: float | None = 6400., rounding: str = 'release', release_motion: float = 0.,
                  modes: int = 64, stiffness: float = 4e-5, body_hz: float = 125., body_q: float = 20.,
                  peak: float = .01, tension: float = 70., length: float = .65,
-                 sustain: float = 9., treble_decay: float = 2.5) -> np.ndarray:
+                 sustain: float = 9., treble_decay: float = 2.5,
+                 palm_resistance: float | None = None, palm_position: float = .08,
+                 palm_width: float = .04, mechanical_band: float = 8000.) -> np.ndarray:
     """Magnetic velocity readout of a finite, dissipative string/bridge model.
 
     ``release_motion`` is the signed fraction of initial energy in a velocity
@@ -144,7 +146,18 @@ def modal_string(freq: float, n: int, sr: int, *, pick: float = .15, pickup: flo
 
     ``modes`` bounds the string basis; modes near/above the audio band are omitted.
     This is a steady-pitch source, with no recording or measured response input.
+    ``palm_resistance=None`` preserves the original source. A nonnegative value
+    selects the distributed-contact source with its independent physical band;
+    zero selects the same mechanics with no added contact damping.
     """
+    if palm_resistance is not None:
+        from notes.engine.palm_contact import palm_string
+
+        return palm_string(freq, n, sr, position=palm_position, contact_width=palm_width,
+            resistance=palm_resistance, mechanical_band=mechanical_band, pick=pick, pickup=pickup,
+            pickup_width=width, spacing=spacing, relative=relative, cutoff=cutoff, rounding=rounding,
+            release_motion=release_motion, modes=modes, stiffness=stiffness, body_hz=body_hz,
+            body_q=body_q, peak=peak, tension=tension, length=length, sustain=sustain, treble_decay=treble_decay)
     if (not isinstance(n, int) or n < 0 or not isinstance(sr, int) or sr < 4000
             or not np.isfinite(freq) or not 20 <= freq < sr/4):
         raise ValueError('modal string needs integer length/rate, sr >= 4000 and 20 <= freq < sr/4')
