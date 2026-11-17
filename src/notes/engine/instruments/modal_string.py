@@ -31,6 +31,17 @@ class ModalString(Instrument):
     ``pluck_force`` is the effective maximum pull in the mechanical model,
     scaled by velocity; it is separate from the synthetic pick transient.
 
+    Optional ``palm_resistance`` enables distributed viscous contact on muted
+    notes instead of ``mute_decay``. None preserves scalar muting; zero enables
+    the contact mechanics with no added damping. ``palm_position/palm_width``
+    describe its region as fractions of the open string (or vibrating length
+    without fretting), with resistance in effective N*s/m. These three controls
+    accept per-note overrides requiring ``palm_mute=True``. The independent
+    ``mechanical_band`` is bounded by ``modes``; it is not an identified palm.
+    ``pick_cutoff`` optionally overrides the hardness-derived force bandwidth;
+    ``pluck_rounding`` selects spatial or release rounding. Defaults retain
+    the original source. Neither this source nor a fit certifies timbre realism.
+
     This experimental direct source has no amp/cabinet. It currently supports
     steady pitches; time-varying bends, slides and vibrato raise ValueError.
     No sampled waves, reference phases or measured IRs are loaded.
@@ -48,6 +59,8 @@ class ModalString(Instrument):
     treble_decay: float = 2.5
     pick_position: float = .15
     brightness: float = .7
+    pick_cutoff: float | None = None
+    pluck_rounding: str = 'release'
     pickup_position: float = .06
     pickup_width: float = .04
     coil_spacing: float = 0.
@@ -58,6 +71,10 @@ class ModalString(Instrument):
     pick_noise: float = .2
     pluck_force: float = 3.
     mute_decay: float = .5
+    palm_resistance: float | None = None
+    palm_position: float = .08
+    palm_width: float = .04
+    mechanical_band: float = 8000.
     release: float = .06
     level: float = .5
 
@@ -82,6 +99,18 @@ class ModalString(Instrument):
                 or self.pickup_position-(self.pickup_width+self.coil_spacing)/2 < 0
                 or self.pickup_position+(self.pickup_width+self.coil_spacing)/2 > 1):
             raise ValueError('the whole pickup aperture must lie inside the string')
+        if self.pick_cutoff is not None and (not np.isfinite(self.pick_cutoff) or self.pick_cutoff <= 0):
+            raise ValueError('pick_cutoff must be finite and positive')
+        if self.pluck_rounding not in ('spatial', 'release'):
+            raise ValueError('pluck_rounding must be spatial or release')
+        if self.palm_resistance is not None and (not np.isfinite(self.palm_resistance) or self.palm_resistance < 0):
+            raise ValueError('palm_resistance must be finite and nonnegative')
+        if (not np.isfinite(self.palm_position) or not 0 < self.palm_position < 1
+                or not np.isfinite(self.palm_width) or self.palm_width < 0
+                or self.palm_position-self.palm_width/2 < 0 or self.palm_position+self.palm_width/2 > 1):
+            raise ValueError('whole palm contact must lie inside the open string')
+        if not np.isfinite(self.mechanical_band) or self.mechanical_band <= 0:
+            raise ValueError('mechanical_band must be finite and positive')
 
     def release_time(self) -> float:
         return self.release
@@ -114,19 +143,36 @@ class ModalString(Instrument):
         muted = bool(v.params.get('palm_mute', False))
         if legato:
             hardness *= _LEGATO_SOFTNESS
-        sustain = self.mute_decay if muted else self.sustain
-        upper = min(self.treble_decay, .3*self.mute_decay) if muted else self.treble_decay
+        if not muted and any(name in v.params for name in ('palm_resistance', 'palm_position', 'palm_width')):
+            raise ValueError('per-note palm controls require palm_mute=True')
+        resistance = v.params.get('palm_resistance', self.palm_resistance) if muted else None
+        if resistance is not None:
+            resistance = float(resistance)
+        contact = resistance is not None
+        if not contact and any(name in v.params for name in ('palm_position', 'palm_width')):
+            raise ValueError('per-note palm geometry requires palm_resistance')
+        position = float(v.params.get('palm_position', self.palm_position))/scale
+        contact_width = float(v.params.get('palm_width', self.palm_width))/scale
+        cutoff = v.params.get('pick_cutoff', self.pick_cutoff)
+        if cutoff is not None:
+            cutoff = float(cutoff)
+        else:
+            cutoff = min(1500*2**(3*hardness), .8*self.mechanical_band if contact else ctx.sr*.45)
+        sustain = self.mute_decay if muted and not contact else self.sustain
+        upper = min(self.treble_decay, .3*self.mute_decay) if muted and not contact else self.treble_decay
         wave = modal_string(frequency, n, ctx.sr, modes=self.modes, stiffness=stiffness,
             body_hz=self.bridge_hz, body_q=self.bridge_q, peak=self.bridge_mobility*bridge,
             tension=self.tension, length=self.length*scale, sustain=sustain, treble_decay=upper,
             pick=pick, pickup=self.pickup_position/scale, width=self.pickup_width/scale,
-            spacing=self.coil_spacing/scale, cutoff=min(1500*2**(3*hardness), ctx.sr*.45),
-            release_motion=motion)
+            spacing=self.coil_spacing/scale, cutoff=cutoff, rounding=self.pluck_rounding,
+            release_motion=motion, palm_resistance=resistance, palm_position=position,
+            palm_width=contact_width, mechanical_band=self.mechanical_band)
         wave *= self.pluck_force
         if legato:
             wave *= _LEGATO_LEVEL
         else:
             wave += self.pick_noise*_pick_click(n, ctx.sr, rng)
         envelope = _gate(gate, n, ctx.sr, self.release)
-        envelope[:gate] = 1.  # Preserve the mechanically defined attack and moving initial state.
+        if not contact:
+            envelope[:gate] = 1.  # Preserve the original source's mechanically defined attack.
         return wave*self.level*vel_gain(v.vel)*envelope
