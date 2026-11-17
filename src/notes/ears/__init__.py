@@ -5,6 +5,7 @@ from notes.ears.aesthetics import AestheticsEar, fetch_aesthetics
 from notes.ears.clap import CLAP_SAMPLE_RATE, DEFAULT_MODEL, Ear, Tag, cosine, format_report, to_clap_rate, windows
 from notes.ears.compare import ANALYSIS_RATE, Comparison, compare, format_comparison, listening, load
 from notes.ears.fit import FitResult, fit_loss, fit_reference
+from notes.ears.idmt import idmt_music
 from notes.ears.inharmonicity import InharmonicPartial, StringInharmonicity, string_inharmonicity
 from notes.ears.mert import MertEar
 from notes.ears.note_profile import PartialDecay, harmonic_shape_distance, infer_expression_points, partial_decays
@@ -55,6 +56,7 @@ __all__ = [
     "listening",
     "infer_expression_points",
     "harmonic_shape_distance",
+    "idmt_music",
     "known_note_tuning",
     "interharmonic_energy",
     "load",
