@@ -372,6 +372,11 @@ initial hammer speed in model m/s before nonlinear contact. Per-note
 original `.6+3.4*velocity` law and an empty curve retains existing audio exactly.
 Zero speed or zero velocity is silent. This controls contact energy and spectrum,
 not output gain; a register-specific calibration still needs independent validation.
+`CoupledPiano` permits `felt_stiffness_scale=0.01..16`, also per note, so softer
+register-dependent contacts can be modeled without output attenuation. The
+independent physical-coordinate contact checks include the softer range. This
+does not change the default or certify a general piano calibration; the existing
+50 ms separation and numerical-resolution guards still apply.
 The source requires separation within 50 ms and explicitly rejects unsupported
 contact/band configurations. It does not replace Piano or the accepted palette.
 

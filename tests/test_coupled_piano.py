@@ -58,14 +58,16 @@ def test_moving_endpoint_matrices_match_independent_spatial_energy_and_contact_g
 
 @pytest.mark.parametrize("body", [None, 0.02])
 @pytest.mark.parametrize("speed", [.3, 2.64])
-def test_contact_matches_independent_continuous_physical_coordinate_ode(body, speed):
+@pytest.mark.parametrize("felt_scale", [.03, 1.])
+def test_contact_matches_independent_continuous_physical_coordinate_ode(body, speed, felt_scale):
     f = 440.0
-    p = _Parameters(unison_cents=(-1.4, 1.4), modes=8, contact_oversample=4, bridge_mass=body)
+    p = _Parameters(unison_cents=(-1.4, 1.4), modes=8, contact_oversample=4,
+                    bridge_mass=body, felt_stiffness_scale=felt_scale)
     m = _model(f, 16000, p)
     contact = _contact(m, f, 0.6, p, hammer_speed=speed)
     size = len(m.M)
     hammer_mass = 0.007 * (220 / f) ** 0.15
-    felt = 2e9 * (0.45 + 0.65) / 2
+    felt = 2e9 * (0.45 + 0.65) * felt_scale / 2
     minvK = solve(m.M, m.K, assume_a="pos")
     minvC = solve(m.M, m.C, assume_a="pos")
     minvB = solve(m.M, m.B, assume_a="pos")
@@ -129,6 +131,7 @@ def test_silence_short_prefix_and_offset_order_have_defined_behavior():
         {"brightness": 2},
         {"hammer_mass_scale": 0.1},
         {"felt_stiffness_scale": 20},
+        {"felt_stiffness_scale": .009},
         {"bridge_mass": 0},
         {"bridge_mass": 1e-12},
         {"bridge_hz": np.nan},
