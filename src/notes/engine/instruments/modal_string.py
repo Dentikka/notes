@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from notes.engine.articulation import _partial_gains, pitch_curve
+from notes.engine.articulation import _partial_gains, _partial_t60s, pitch_curve
 from notes.engine.base import Effect, Instrument, RenderContext, Voice
 from notes.engine.dsp import vel_gain
 from notes.engine.effects.tone import Filter
@@ -46,6 +46,13 @@ class ModalString(Instrument):
     accepts per-note overrides. It changes neither contact nor initial state,
     and leaves the bridge readout unchanged. This empirical static spectral
     control does not represent identified excitation or recorded carriers.
+    ``partial_t60s`` optionally sets up to 80 positive amplitude T60 seconds for
+    physical string-coordinate losses, also per note. None/missing entries use
+    sustain/treble_decay. Positive damping preserves passivity; actual coupled
+    body/contact poles can differ. This changes neither the initial state nor
+    readout gains, and does not extend the explicit gate/release envelope.
+    Explicit entries also override scalar muting losses; viscous palm loss is
+    still added when contact is enabled.
 
     This experimental direct source has no amp/cabinet. It currently supports
     steady pitches; time-varying bends, slides and vibrato raise ValueError.
@@ -67,6 +74,7 @@ class ModalString(Instrument):
     pick_cutoff: float | None = None
     pluck_rounding: str = 'release'
     partial_gains: tuple[float, ...] = ()
+    partial_t60s: tuple[float | None, ...] = ()
     pickup_position: float = .06
     pickup_width: float = .04
     coil_spacing: float = 0.
@@ -86,6 +94,7 @@ class ModalString(Instrument):
 
     def __post_init__(self) -> None:
         object.__setattr__(self, 'partial_gains', _partial_gains(self.partial_gains))
+        object.__setattr__(self, 'partial_t60s', _partial_t60s(self.partial_t60s))
         if not isinstance(self.modes, int) or isinstance(self.modes, bool) or not 8 <= self.modes <= 128:
             raise ValueError('modes must be an integer from 8 to 128')
         for name in ('bridge_hz', 'bridge_q', 'tension', 'length', 'sustain', 'treble_decay',
@@ -174,7 +183,8 @@ class ModalString(Instrument):
             spacing=self.coil_spacing/scale, cutoff=cutoff, rounding=self.pluck_rounding,
             release_motion=motion, palm_resistance=resistance, palm_position=position,
             palm_width=contact_width, mechanical_band=self.mechanical_band,
-            partial_gains=v.params.get('partial_gains', self.partial_gains))
+            partial_gains=v.params.get('partial_gains', self.partial_gains),
+            partial_t60s=v.params.get('partial_t60s', self.partial_t60s))
         wave *= self.pluck_force
         if legato:
             wave *= _LEGATO_LEVEL

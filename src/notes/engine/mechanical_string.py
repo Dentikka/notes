@@ -14,7 +14,7 @@ import numpy as np
 from scipy.linalg import eig, eigh, solve
 from scipy.optimize import linear_sum_assignment
 
-from notes.engine.articulation import _partial_gains
+from notes.engine.articulation import _partial_gains, _partial_t60s
 
 __all__ = ["modal_string"]
 
@@ -37,7 +37,9 @@ class _State(TypedDict):
 def _mechanics(bare: float, *, modes: int = 64, stiffness: float = 4e-5,
               body_hz: float = 115., body_q: float = 20., peak: float = .02,
               tension: float = 70., length: float = .65, sustain: float = 9.,
-              treble_decay: float = 2.5) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+              treble_decay: float = 2.5,
+              partial_t60s: tuple[float | None, ...] = ()) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    decays = _partial_t60s(partial_t60s)
     h = np.arange(1, modes+1, dtype=float)
     mass = tension*(1+stiffness)/(4*length*bare*bare)
     hz = bare*h*np.sqrt((1+stiffness*h*h)/(1+stiffness))
@@ -46,6 +48,9 @@ def _mechanics(bare: float, *, modes: int = 64, stiffness: float = 4e-5,
     t60 = sustain*(220/bare)**.4
     gamma = np.log(1000)*(1/t60 + max(0, 1/treble_decay-1/t60)*np.maximum(0, hz*hz-bare*bare) /
                          max(1, 4000**2-bare*bare))
+    for index, seconds in enumerate(decays[:modes]):
+        if seconds is not None:
+            gamma[index] = np.log(1000)/seconds
     C = np.diag(mass*gamma)
     if peak > 0:
         omega = 2*np.pi*body_hz
@@ -62,9 +67,11 @@ def _mechanics(bare: float, *, modes: int = 64, stiffness: float = 4e-5,
 
 @lru_cache(maxsize=128)
 def _state(bare: float, modes: int, stiffness: float, body_hz: float, body_q: float, peak: float,
-          tension: float, length: float, sustain: float, treble_decay: float) -> _State:
+          tension: float, length: float, sustain: float, treble_decay: float,
+          partial_t60s: tuple[float | None, ...] = ()) -> _State:
     M, K, C, h = _mechanics(bare, modes=modes, stiffness=stiffness, body_hz=body_hz, body_q=body_q,
-                           peak=peak, tension=tension, length=length, sustain=sustain, treble_decay=treble_decay)
+                           peak=peak, tension=tension, length=length, sustain=sustain, treble_decay=treble_decay,
+                           partial_t60s=partial_t60s)
     omega2, U = eigh(K, M)
     omega = np.sqrt(omega2)
     D = U.T@C@U
@@ -92,11 +99,13 @@ def _state(bare: float, modes: int, stiffness: float, body_hz: float, body_q: fl
 def _tuned_state(freq: float, *, modes: int = 64, stiffness: float = 4e-5,
                 body_hz: float = 115., body_q: float = 20., peak: float = .02,
                 tension: float = 70., length: float = .65, sustain: float = 9.,
-                treble_decay: float = 2.5) -> tuple[float, _State]:
+                 treble_decay: float = 2.5,
+                 partial_t60s: tuple[float | None, ...] = ()) -> tuple[float, _State]:
     bare = freq
+    losses = {'partial_t60s': partial_t60s} if partial_t60s else {}
     for _ in range(12):
         model = _state(float(bare), modes, stiffness, body_hz, body_q, peak,
-                      tension, length, sustain, treble_decay)
+                      tension, length, sustain, treble_decay, **losses)
         observed = model['string_poles'][0].imag/(2*np.pi)
         if abs(1200*np.log2(observed/freq)) < .001:
             return float(bare), model
@@ -144,7 +153,8 @@ def modal_string(freq: float, n: int, sr: int, *, pick: float = .15, pickup: flo
                  sustain: float = 9., treble_decay: float = 2.5,
                  palm_resistance: float | None = None, palm_position: float = .08,
                  palm_width: float = .04, mechanical_band: float = 8000.,
-                 partial_gains: tuple[float, ...] = ()) -> np.ndarray:
+                 partial_gains: tuple[float, ...] = (),
+                 partial_t60s: tuple[float | None, ...] = ()) -> np.ndarray:
     """Magnetic velocity readout of a finite, dissipative string/bridge model.
 
     ``release_motion`` is the signed fraction of initial energy in a velocity
@@ -161,8 +171,14 @@ def modal_string(freq: float, n: int, sr: int, *, pick: float = .15, pickup: flo
     readouts, not damped eigenmodes or the mechanical state. Missing gains are one;
     the bridge readout is unchanged. This is an empirical output control, not an
     identified pickup or excitation. Empty preserves the original output.
+    ``partial_t60s`` assigns positive isolated-coordinate amplitude T60 seconds;
+    None/missing entries keep the sustain/treble loss law. It modifies the
+    positive diagonal string damping, not initial energy, gains or bridge loss.
+    Coupled body/contact poles need not have the assigned isolated T60 values.
     """
     gains = _partial_gains(partial_gains)
+    decays = _partial_t60s(partial_t60s)
+    losses = {'partial_t60s': decays} if decays else {}
     if palm_resistance is not None:
         from notes.engine.palm_contact import palm_string
 
@@ -171,7 +187,7 @@ def modal_string(freq: float, n: int, sr: int, *, pick: float = .15, pickup: flo
             pickup_width=width, spacing=spacing, relative=relative, cutoff=cutoff, rounding=rounding,
             release_motion=release_motion, modes=modes, stiffness=stiffness, body_hz=body_hz,
             body_q=body_q, peak=peak, tension=tension, length=length, sustain=sustain,
-            treble_decay=treble_decay, partial_gains=gains)
+            treble_decay=treble_decay, partial_gains=gains, **losses)
     if (not isinstance(n, int) or n < 0 or not isinstance(sr, int) or sr < 4000
             or not np.isfinite(freq) or not 20 <= freq < sr/4):
         raise ValueError('modal string needs integer length/rate, sr >= 4000 and 20 <= freq < sr/4')
@@ -195,7 +211,8 @@ def modal_string(freq: float, n: int, sr: int, *, pick: float = .15, pickup: flo
     hz = freq*h*np.sqrt((1+stiffness*h*h)/(1+stiffness))
     count = max(2, int(np.sum(hz < sr*.42)))
     _, model = _tuned_state(freq, modes=count, stiffness=stiffness, body_hz=body_hz, body_q=body_q,
-                            peak=peak, tension=tension, length=length, sustain=sustain, treble_decay=treble_decay)
+                            peak=peak, tension=tension, length=length, sustain=sustain, treble_decay=treble_decay,
+                            **losses)
     if rounding not in ('spatial', 'release'):
         raise ValueError('rounding must be spatial or release')
     z0 = _initial_state(model, pick, cutoff if rounding == 'spatial' else None,

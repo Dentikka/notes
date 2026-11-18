@@ -938,6 +938,17 @@ not recorded carriers, identified pickup geometry or a new accepted preset.
 Empty or identity gains preserve the previous output. Reference-conditioned
 gains must be validated on other notes/strikes before claiming transfer.
 
+Optional `ModalString(partial_t60s=(12.0, None, 2.0))` sets isolated string-coordinate
+amplitude decay times in seconds, also per note. `None` or missing entries retain
+the sustain/treble loss law; an empty note override restores that law for all modes.
+Up to 80 finite positive times are supported. The control changes positive
+mechanical damping before body/contact coupling, preserving passivity and the
+initial state. Coupled poles can have different lifetimes, and the explicit note
+gate/release still applies. This calibration option does not establish a general
+realistic preset; no measured phases, carriers or impulse responses are loaded.
+Explicit entries replace scalar muting losses too; viscous palm damping remains
+an additional mechanical loss when that contact is enabled.
+
 `notes.ears.fit_partial_gains(reference_envelopes, candidate_envelopes)` estimates
 static shape controls for corresponding mode indices. First call
 `partial_envelopes` on each signal using its own supported frequencies/ratios;
