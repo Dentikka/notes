@@ -66,6 +66,25 @@ def _partial_t60s(value: object) -> tuple[float | None, ...]:
     return tuple(result)
 
 
+def _partial_t60_steps(value: object) -> tuple[tuple[float, tuple[float | None, ...]], ...]:
+    """Onset-relative replacement schedules for positive mechanical loss times."""
+    if not isinstance(value, (tuple, list)) or len(value) > 64:
+        raise ValueError('partial_t60_steps needs at most 64 (seconds, losses) rows')
+    result: list[tuple[float, tuple[float | None, ...]]] = []
+    for row in value:
+        if not isinstance(row, (tuple, list)) or len(row) != 2:
+            raise ValueError('partial_t60_steps rows must contain seconds and a loss tuple')
+        try:
+            time = float(row[0])
+        except (TypeError, ValueError) as error:
+            raise ValueError('partial_t60_steps needs increasing nonnegative finite seconds') from error
+        if (isinstance(row[0], (bool, np.bool_)) or not np.isfinite(time) or time < 0
+                or (result and time <= result[-1][0])):
+            raise ValueError('partial_t60_steps needs increasing nonnegative finite seconds')
+        result.append((time, _partial_t60s(row[1])))
+    return tuple(result)
+
+
 def _partial_gain_points(value: object, *, name: str = 'partial_gain_points') -> tuple[tuple[float, ...], ...]:
     """Rows of seconds and linear mode gains; shared by harmonic/modal readouts."""
     if not isinstance(value, (tuple, list)) or len(value) > 512:

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from notes.engine.articulation import _partial_gains, _partial_t60s, pitch_curve
+from notes.engine.articulation import _partial_gains, _partial_t60_steps, _partial_t60s, pitch_curve
 from notes.engine.base import Effect, Instrument, RenderContext, Voice
 from notes.engine.dsp import vel_gain
 from notes.engine.effects.tone import Filter
@@ -75,6 +75,7 @@ class ModalString(Instrument):
     pluck_rounding: str = 'release'
     partial_gains: tuple[float, ...] = ()
     partial_t60s: tuple[float | None, ...] = ()
+    partial_t60_steps: tuple[tuple[float, tuple[float | None, ...]], ...] = ()
     pickup_position: float = .06
     pickup_width: float = .04
     coil_spacing: float = 0.
@@ -95,6 +96,7 @@ class ModalString(Instrument):
     def __post_init__(self) -> None:
         object.__setattr__(self, 'partial_gains', _partial_gains(self.partial_gains))
         object.__setattr__(self, 'partial_t60s', _partial_t60s(self.partial_t60s))
+        object.__setattr__(self, 'partial_t60_steps', _partial_t60_steps(self.partial_t60_steps))
         if not isinstance(self.modes, int) or isinstance(self.modes, bool) or not 8 <= self.modes <= 128:
             raise ValueError('modes must be an integer from 8 to 128')
         for name in ('bridge_hz', 'bridge_q', 'tension', 'length', 'sustain', 'treble_decay',
@@ -184,7 +186,8 @@ class ModalString(Instrument):
             release_motion=motion, palm_resistance=resistance, palm_position=position,
             palm_width=contact_width, mechanical_band=self.mechanical_band,
             partial_gains=v.params.get('partial_gains', self.partial_gains),
-            partial_t60s=v.params.get('partial_t60s', self.partial_t60s))
+            partial_t60s=v.params.get('partial_t60s', self.partial_t60s),
+            partial_t60_steps=v.params.get('partial_t60_steps', self.partial_t60_steps))
         wave *= self.pluck_force
         if legato:
             wave *= _LEGATO_LEVEL
