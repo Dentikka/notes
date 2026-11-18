@@ -382,3 +382,22 @@ def test_normalized_string_weights_are_canonical_across_repeated_json_loads():
         for _ in range(5):
             current = build_instrument(current.to_spec())
             assert current == original
+
+
+@pytest.mark.parametrize('frequency', [440., 1760.])
+@pytest.mark.parametrize('body', [None, .02])
+@pytest.mark.parametrize('scale', [.5, 2.])
+def test_power_law_contact_similarity_exposes_speed_felt_gain_nonidentifiability(frequency, body, scale):
+    # With F=k*compression**2.3, scaling all displacements/velocities by a,
+    # and k by a**(-1.3), preserves the equations and scales energy by a*a.
+    # This checks the integrated contact head and analytic free observation.
+    options = dict(freq=frequency, n=2400, sr=16000, velocity=.6, modes=8,
+                   bridge_mass=body, unison_weights=(.115, .77, .115), contact_oversample=2)
+    before, after = {}, {}
+    reference = struck_unisons(**options, hammer_speed=1.2, _audit=before)
+    changed = struck_unisons(**options, hammer_speed=1.2*scale,
+                             felt_stiffness_scale=scale**(-1.3), _audit=after)
+    assert np.linalg.norm(changed/scale-reference)/np.linalg.norm(reference) < 1e-7
+    assert before['contact_seconds'] == after['contact_seconds']
+    assert after['initial_energy']/before['initial_energy'] == pytest.approx(scale*scale)
+    assert before['max_relative_balance_error'] < 1e-8 and after['max_relative_balance_error'] < 1e-8

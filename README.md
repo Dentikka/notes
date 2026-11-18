@@ -380,6 +380,16 @@ initial hammer speed in model m/s before nonlinear contact. Per-note
 original `.6+3.4*velocity` law and an empty curve retains existing audio exactly.
 Zero speed or zero velocity is silent. This controls contact energy and spectrum,
 not output gain; a register-specific calibration still needs independent validation.
+
+Contact calibration has a scale ambiguity in the current homogeneous force law.
+Holding the note, masses, losses, brightness and readout fixed, changing initial
+speed from `v` to `a*v` and felt scale from `k` to `k/a**1.3` scales the raw
+waveform by `a`, including the contact head. Thus a free overall gain prevents
+separate identification of speed and felt from one level-normalized note. Fix
+one as a calibration convention instead of jointly fitting both. This is an
+invariant of this simplified force law, before nonlinear effects or limiting;
+it is not a claim about the identifiability of real piano felt.
+
 `CoupledPiano` permits `felt_stiffness_scale=0.01..16`, also per note, so softer
 register-dependent contacts can be modeled without output attenuation. The
 independent physical-coordinate contact checks include the softer range. This
