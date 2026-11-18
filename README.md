@@ -989,6 +989,13 @@ each observation's rate. This estimates normalized modal shape, returns no audio
 recorded phase or IR, and requires separate validation on other notes/strikes.
 It does not change any instrument default or establish a realistic general preset.
 
+For conditional reconstruction of one known stroke, pass `fixed_pickup=0.07`.
+This holds the open-length pickup position exactly, overrides its optimization
+bounds, and fits only pluck position/bandwidth; one observation is then sufficient.
+The aperture must fit every observed vibrating string. `pickup_fitted=False`
+distinguishes this result from joint geometry identification. Such a per-recording
+fit is a reconstruction, not evidence of transfer to an unseen strike or note.
+
 For muted notes, optional `palm_resistance` enables a passive distributed viscous
 contact instead of scalar `mute_decay`. None retains the original source; zero
 selects contact mechanics with no additional damping. `palm_position` and
