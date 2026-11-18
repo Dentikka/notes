@@ -31,6 +31,10 @@ class CoupledPiano(Instrument):
     with the source may be overridden on notes. There are no measured phase,
     carrier, impulse-response or readout-envelope inputs.
 
+    Optional unison_weights gives each string a nonnegative relative output
+    contribution. The offset/weight pairs are normalized and sorted together.
+    This changes the observation, not the string mechanics or hammer force.
+
     Optional hammer_speed_points maps velocity 0..1 to initial hammer speed
     0..4 model m/s before contact. Per-note hammer_speed overrides the curve;
     None explicitly restores the original velocity law. These controls alter
@@ -46,6 +50,7 @@ class CoupledPiano(Instrument):
 
     program: int | None = 0
     unison_cents: tuple[float, ...] = (-1.4, 0., 1.4)
+    unison_weights: tuple[float, ...] | None = None
     modes: int = 64
     mechanical_band: float = 17640.
     stiffness: float = .00012
