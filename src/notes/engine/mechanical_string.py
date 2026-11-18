@@ -14,7 +14,7 @@ import numpy as np
 from scipy.linalg import eig, eigh, solve
 from scipy.optimize import linear_sum_assignment
 
-from notes.engine.articulation import _partial_gains, _partial_t60s
+from notes.engine.articulation import _partial_gains, _partial_t60_steps, _partial_t60s
 
 __all__ = ["modal_string"]
 
@@ -154,7 +154,8 @@ def modal_string(freq: float, n: int, sr: int, *, pick: float = .15, pickup: flo
                  palm_resistance: float | None = None, palm_position: float = .08,
                  palm_width: float = .04, mechanical_band: float = 8000.,
                  partial_gains: tuple[float, ...] = (),
-                 partial_t60s: tuple[float | None, ...] = ()) -> np.ndarray:
+                 partial_t60s: tuple[float | None, ...] = (),
+                 partial_t60_steps: tuple[tuple[float, tuple[float | None, ...]], ...] = ()) -> np.ndarray:
     """Magnetic velocity readout of a finite, dissipative string/bridge model.
 
     ``release_motion`` is the signed fraction of initial energy in a velocity
@@ -178,16 +179,25 @@ def modal_string(freq: float, n: int, sr: int, *, pick: float = .15, pickup: flo
     """
     gains = _partial_gains(partial_gains)
     decays = _partial_t60s(partial_t60s)
+    steps = _partial_t60_steps(partial_t60_steps)
+    changes = []
+    for time, replacement in steps:
+        if time == 0:
+            decays = replacement
+        elif replacement != (changes[-1][1] if changes else decays):
+            changes.append((time, replacement))
+    steps = tuple(changes)
     losses = {'partial_t60s': decays} if decays else {}
-    if palm_resistance is not None:
+    if palm_resistance is not None or steps:
         from notes.engine.palm_contact import palm_string
 
         return palm_string(freq, n, sr, position=palm_position, contact_width=palm_width,
-            resistance=palm_resistance, mechanical_band=mechanical_band, pick=pick, pickup=pickup,
+            resistance=0. if palm_resistance is None else palm_resistance,
+            mechanical_band=mechanical_band, pick=pick, pickup=pickup,
             pickup_width=width, spacing=spacing, relative=relative, cutoff=cutoff, rounding=rounding,
             release_motion=release_motion, modes=modes, stiffness=stiffness, body_hz=body_hz,
             body_q=body_q, peak=peak, tension=tension, length=length, sustain=sustain,
-            treble_decay=treble_decay, partial_gains=gains, **losses)
+            treble_decay=treble_decay, partial_gains=gains, partial_t60_steps=steps, **losses)
     if (not isinstance(n, int) or n < 0 or not isinstance(sr, int) or sr < 4000
             or not np.isfinite(freq) or not 20 <= freq < sr/4):
         raise ValueError('modal string needs integer length/rate, sr >= 4000 and 20 <= freq < sr/4')

@@ -960,6 +960,21 @@ realistic preset; no measured phases, carriers or impulse responses are loaded.
 Explicit entries replace scalar muting losses too; viscous palm damping remains
 an additional mechanical loss when that contact is enabled.
 
+Optional `partial_t60_steps=((0.64, (8.0, None, 2.0)),)` on `ModalString` or a
+note replaces the loss tuple at each strictly increasing onset-relative time.
+Up to 64 rows are supported. Each row is a complete replacement: `None` or
+missing modes use intrinsic sustain/treble losses, and `()` resets every mode.
+Before the first step, `partial_t60s` applies; a row at zero sets initial damping.
+The source propagates mechanical displacement/velocity and release-filter memory
+through each boundary, changing positive damping only. M/K, initial pluck and
+pickup stay fixed; changing loss does not inject mechanical energy or restart
+the note. Steps use the internal observation grid, with no recorded carriers.
+Nontrivial schedules use the physical-band contact solver, with zero contact
+resistance when no palm contact was requested; specify that same solver for a
+controlled static comparison. Empty/redundant schedules preserve the previous
+path. These are effective piecewise losses, not an identified damping mechanism
+or a general realistic preset. Pitch curves remain unsupported by `ModalString`.
+
 `notes.ears.fit_partial_gains(reference_envelopes, candidate_envelopes)` estimates
 static shape controls for corresponding mode indices. First call
 `partial_envelopes` on each signal using its own supported frequencies/ratios;
