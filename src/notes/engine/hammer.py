@@ -11,6 +11,16 @@ from scipy.signal import resample_poly
 from notes.engine.articulation import _partial_gain_points, _unison_strings
 
 
+def _radiation_loss_scale(value: object) -> float:
+    try:
+        scale = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError('radiation_loss_scale must be finite and in [0,4]') from error
+    if isinstance(value, (bool, np.bool_)) or not np.isfinite(scale) or not 0 <= scale <= 4:
+        raise ValueError('radiation_loss_scale must be finite and in [0,4]')
+    return scale
+
+
 def struck_string(freq: float, n: int, sr: int, velocity: float, *,
                   brightness: float = 0.65, stiffness: float = 0.00012,
                   sustain: float = 8.0, detune: float = 1.4, radiation: bool = False,
@@ -19,6 +29,7 @@ def struck_string(freq: float, n: int, sr: int, velocity: float, *,
                   unison_strings: int | None = None, hammer_speed: float | None = None,
                   felt_stiffness_scale: float = 1.0, contact_oversample: int = 1,
                   radiation_compensation: float = 0.0,
+                  radiation_loss_scale: float = 1.0,
                   _audit: dict[str, float] | None = None) -> np.ndarray:
     """Return bridge-velocity-like output following one felt hammer impact.
 
@@ -37,6 +48,10 @@ def struck_string(freq: float, n: int, sr: int, velocity: float, *,
     radiation_compensation restores a fraction of synthetic modal readout power
     removed by the register tap: one scalar from the impact state, not a body
     model, recorded response, change of modal ratios or altered contact force.
+    radiation_loss_scale independently multiplies the extra register-dependent
+    positive damping, during both contact and free ringing. Zero removes only
+    that extra loss, preserving intrinsic sustain losses and the radiation tap;
+    one retains the accepted behavior. This is not a soundboard identification.
     """
     if not np.isfinite(hammer_mass_scale) or not 0.25 <= hammer_mass_scale <= 4:
         raise ValueError("hammer_mass_scale must be between 0.25 and 4")
@@ -49,6 +64,9 @@ def struck_string(freq: float, n: int, sr: int, velocity: float, *,
         raise ValueError('radiation_compensation must be between 0 and 1')
     if radiation_compensation and not radiation:
         raise ValueError('radiation_compensation requires radiation=True')
+    radiation_loss_scale = _radiation_loss_scale(radiation_loss_scale)
+    if radiation_loss_scale != 1 and not radiation:
+        raise ValueError('radiation_loss_scale requires radiation=True')
     if hammer_speed is not None:
         try:
             hammer_speed = float(hammer_speed)
@@ -100,7 +118,7 @@ def struck_string(freq: float, n: int, sr: int, velocity: float, *,
     c, s = np.cos(omega * dt), np.sin(omega * dt)
     t60 = sustain * (220 / freq) ** 0.28 / (1 + 0.045 * (k - 1) ** 1.2)
     # Frequency-dependent loss is additional to the original per-mode decay.
-    t60 /= 1 + register * (frequencies / 1400) ** 1.2
+    t60 /= 1 + radiation_loss_scale * register * (frequencies / 1400) ** 1.2
     damping = np.exp(-np.log(1000) * dt / t60)
     contact_samples = min(n * factor, int(0.025 * rate))
     contact = np.zeros(contact_samples)

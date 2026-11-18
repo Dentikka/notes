@@ -9,6 +9,7 @@ from scipy.signal import lfilter
 from notes.engine.articulation import _partial_gain_points, _unison_strings, pitch_curve
 from notes.engine.base import Instrument, RenderContext, Voice
 from notes.engine.dsp import adsr, biquad, filt, vel_gain
+from notes.engine.hammer import _radiation_loss_scale
 from notes.engine.piano_impact import _impact_controls, impact_duration, piano_impact
 from notes.engine.registry import register_instrument
 
@@ -94,6 +95,8 @@ class Piano(Instrument):
 
     sustain is fundamental T60 at A3. Per-note pedal=True lets the string ring
     after key release; it is a fixed per-note pedal, not a continuous MIDI pedal.
+    Per-note undamped=True also free-rings without a pedal event; it models the
+    absence of a key damper, not sympathetic resonance or a universal key range.
     brightness controls hammer hardness, detune is unison spread in cents.
     model="soundboard" enables hammer-position coloration and two-stage decay;
     model="hammer" integrates a nonlinear felt contact exciting string modes.
@@ -122,6 +125,8 @@ class Piano(Instrument):
     stiffness. contact_oversample refines integration without changing modes.
     radiation_compensation is a scalar from synthetic impact-state readout power;
     it preserves relative partials and does not identify physical radiation.
+    radiation_loss_scale independently scales extra frequency-dependent damping
+    in hammer_damped, including during contact; one preserves the old losses.
     Optional impact_gain adds a designed nonharmonic modal impact after string
     damping. It is not measured action noise or a coupled soundboard model.
     impact_decay is T60 at 200 Hz; color, velocity power and delay are independent.
@@ -146,6 +151,7 @@ class Piano(Instrument):
     felt_stiffness_scale: float = 1.0
     contact_oversample: int = 1
     radiation_compensation: float = 0.0
+    radiation_loss_scale: float = 1.0
     impact_gain: float = 0.0
     impact_decay: float = .18
     impact_color: float = .5
@@ -156,6 +162,7 @@ class Piano(Instrument):
         object.__setattr__(self, 'partial_gain_points', _partial_gain_points(self.partial_gain_points))
         object.__setattr__(self, 'unison_strings', _unison_strings(self.unison_strings))
         object.__setattr__(self, 'hammer_speed_points', _hammer_speed_points(self.hammer_speed_points))
+        object.__setattr__(self, 'radiation_loss_scale', _radiation_loss_scale(self.radiation_loss_scale))
         if self.model not in ("legacy", "soundboard", "hammer", "hammer_damped"):
             raise ValueError("model must be legacy, soundboard, hammer or hammer_damped")
         if self.partial_gain_points and self.model not in ('hammer', 'hammer_damped'):
@@ -174,6 +181,8 @@ class Piano(Instrument):
             raise ValueError('felt_stiffness_scale/contact_oversample require contact piano')
         if self.radiation_compensation and self.model != 'hammer_damped':
             raise ValueError('radiation_compensation requires hammer_damped piano')
+        if self.radiation_loss_scale != 1 and self.model != 'hammer_damped':
+            raise ValueError('radiation_loss_scale requires hammer_damped piano')
         if not np.isfinite(self.attack_presence) or not 0 <= self.attack_presence <= 1:
             raise ValueError("attack_presence must be between 0 and 1")
         if not np.isfinite(self.hammer_mass_scale) or not 0.25 <= self.hammer_mass_scale <= 4:
@@ -189,6 +198,13 @@ class Piano(Instrument):
         if self.impact_gain:
             tail = max(tail, impact_duration(self.impact_decay, self.impact_delay))
         return tail
+
+    @staticmethod
+    def _free_ring(v: Voice) -> bool:
+        undamped = v.params.get('undamped', False)
+        if not isinstance(undamped, (bool, np.bool_)):
+            raise ValueError('undamped must be boolean')
+        return bool(v.params.get('pedal', False)) or bool(undamped)
 
     @staticmethod
     def _impact_settings(gain: float, decay: float, color: float, power: float, delay: float) -> None:
@@ -225,6 +241,7 @@ class Piano(Instrument):
         felt = v.params.get('felt_stiffness_scale', self.felt_stiffness_scale)
         oversample = v.params.get('contact_oversample', self.contact_oversample)
         compensation = v.params.get('radiation_compensation', self.radiation_compensation)
+        loss_scale = _radiation_loss_scale(v.params.get('radiation_loss_scale', self.radiation_loss_scale))
         self._contact_controls(felt, oversample, compensation)
         impact = {name: v.params.get(key, getattr(self, key)) for name, key in (
             ('gain', 'impact_gain'), ('decay', 'impact_decay'), ('color', 'impact_color'),
@@ -236,6 +253,8 @@ class Piano(Instrument):
             raise ValueError('felt_stiffness_scale/contact_oversample require contact piano')
         if compensation and self.model != 'hammer_damped':
             raise ValueError('radiation_compensation requires hammer_damped piano')
+        if loss_scale != 1 and self.model != 'hammer_damped':
+            raise ValueError('radiation_loss_scale requires hammer_damped piano')
         if points and self.model not in ('hammer', 'hammer_damped'):
             raise ValueError('partial_gain_points requires hammer or hammer_damped piano')
         if strings is not None and self.model not in ('hammer', 'hammer_damped'):
@@ -245,7 +264,7 @@ class Piano(Instrument):
         if self.model in ("hammer", "hammer_damped"):
             from notes.engine.hammer import struck_string
 
-            pedal = bool(v.params.get("pedal", False))
+            pedal = self._free_ring(v)
             tail = max(self.release, self.sustain) if pedal else self.release
             n = ctx.samples(v.dur + tail)
             stiffness = self.stiffness
@@ -270,6 +289,8 @@ class Piano(Instrument):
                 readout_options['contact_oversample'] = oversample
             if compensation:
                 readout_options['radiation_compensation'] = compensation
+            if loss_scale != 1:
+                readout_options['radiation_loss_scale'] = loss_scale
             y = struck_string(v.freq, n, ctx.sr, v.vel, brightness=self.brightness,
                               stiffness=stiffness, sustain=self.sustain, detune=self.detune,
                               radiation=self.model == "hammer_damped", attack_presence=self.attack_presence,
@@ -283,7 +304,7 @@ class Piano(Instrument):
             return self._with_impact(y, v, ctx, rng, impact)
         if self.model == "soundboard":
             return self._soundboard(v, ctx, rng)
-        pedal = bool(v.params.get("pedal", False))
+        pedal = self._free_ring(v)
         tail = self.release_time() if pedal else self.release
         n = ctx.samples(v.dur + tail)
         t = np.arange(n) / ctx.sr
@@ -314,7 +335,7 @@ class Piano(Instrument):
         """Designed modal variant: hammer-position comb, two-stage partial decay,
         slightly unequal unison strings and a resonant bridge response.
         """
-        pedal = bool(v.params.get("pedal", False))
+        pedal = self._free_ring(v)
         tail = self.release_time() if pedal else self.release
         n = ctx.samples(v.dur + tail)
         t = np.arange(n) / ctx.sr

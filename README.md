@@ -323,6 +323,21 @@ frequency, damping and contact forces stay the same. It is not a physical
 soundboard radiation model or an energy-conservation guarantee. The default 0
 preserves the accepted source; notes may override all three controls.
 
+`Piano(model="hammer_damped", radiation_loss_scale=1.0)` independently scales
+the extra register/frequency-dependent damping, during contact and free ringing.
+Values in 0..4 are supported, also per note. Zero removes only that extra loss;
+intrinsic sustain losses and the existing modal readout remain. One preserves
+the accepted source. This changes decay rates and may change the impact state;
+it is not output EQ, an identified soundboard or a validated global preset.
+Other piano models reject nondefault values instead of silently ignoring them.
+
+Per-note `undamped=True` permits natural free ringing after key release without
+setting a pedal event. It uses the existing finite natural tail, applies to all
+piano models and does not simulate sympathetic resonance or half-pedal. The
+default false preserves key-off damping; an actual `pedal=True` still rings.
+There is no automatic assumption about a particular piano's last damped key.
+The renderer's existing quiet-tail trimming still applies.
+
 Optional `impact_gain=0..1` on contact pianos adds a procedurally generated
 nonharmonic attack. A positive synthetic 1 ms pulse excites 48 designed damped
 modes below 1350 Hz (and below .42 of the sample rate). No recorded noise or
