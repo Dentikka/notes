@@ -864,6 +864,17 @@ For measured-B calibration, select `dispersion_fit="bracketed"` explicitly: the
 legacy search can disable dispersion and make different requested B values yield
 the same waveform. Both modes retain the existing approximate two-allpass model.
 
+`ElectricGuitar(fretting=True, stiffness_reference="open")` interprets its global
+`stiffness` as the open-string B and scales it by the inverse squared vibrating
+length ratio for each fret. Default `stiffness_reference="vibrating"` keeps the
+original fixed coefficient. Per-note `stiffness` always remains an absolute B of
+the sounding length and wins over this scaling. Open mode requires fretting and
+a finite nonnegative constructor B. Choose a coefficient appropriate to the
+string and use the existing `dispersion_fit="bracketed"` for calibrated values.
+This is a fixed-tension approximation; it does not infer string material or
+simulate tension changes during bends. The length dependence follows the
+[stiff-string relation described by Daniel Russell](https://www.acs.psu.edu/drussell/Demos/Stiffness-Inharmonicity/Stiffness-B.html).
+
 For amplified guitars, instrument `level` is an excitation gain before the amp;
 changing it changes saturation even after loudness matching. Use `Track.gain` or
 master loudness for output-volume changes that preserve the amp operating point.
