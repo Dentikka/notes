@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from notes import Note, Piano, Song, Track
 from notes.ears import partial_envelopes
-from notes.engine import RenderContext, Voice, build_instrument
+from notes.engine import RenderContext, Voice, build_instrument, render_score
 from notes.engine.hammer import struck_string
 from notes.ir import Score
 
@@ -100,3 +100,15 @@ def test_explicit_undamped_note_rings_without_setting_pedal(model):
     assert len(a) > len(plain)
     with pytest.raises(ValueError, match="undamped"):
         inst.voice(Voice(v.freq, v.pitch, v.dur, v.vel, {"undamped": "false"}), ctx, np.random.default_rng(2))
+
+
+def test_undamped_note_survives_the_normal_renderer_after_key_release():
+    inst = Piano(model="hammer_damped", sustain=2.0, release=0.02, radiation_loss_scale=0.0)
+    outputs = []
+    for flag in [False, True]:
+        score = Song(
+            Track("p", inst)(Note("A4", 0.05, 0.9).param(undamped=flag)), bpm=60, sample_rate=8000, loudness=None
+        ).compile()
+        outputs.append(render_score(score, workers=1))
+    assert outputs[1].duration > outputs[0].duration + 0.2
+    assert np.max(abs(outputs[1].audio[:, 1600:2400])) > 1e-4

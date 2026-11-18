@@ -336,6 +336,7 @@ setting a pedal event. It uses the existing finite natural tail, applies to all
 piano models and does not simulate sympathetic resonance or half-pedal. The
 default false preserves key-off damping; an actual `pedal=True` still rings.
 There is no automatic assumption about a particular piano's last damped key.
+The renderer's existing quiet-tail trimming still applies.
 
 Optional `impact_gain=0..1` on contact pianos adds a procedurally generated
 nonharmonic attack. A positive synthetic 1 ms pulse excites 48 designed damped
