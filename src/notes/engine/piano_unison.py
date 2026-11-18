@@ -42,6 +42,7 @@ def _cents(value: object) -> tuple[float, ...]:
 @dataclass(frozen=True, kw_only=True)
 class _Parameters:
     unison_cents: tuple[float, ...] = (-1.4, 0., 1.4)
+    unison_weights: tuple[float, ...] | None = None
     modes: int = 64
     mechanical_band: float = 17640.
     stiffness: float = .00012
@@ -57,7 +58,22 @@ class _Parameters:
     bridge_q: float = 30.
 
     def __post_init__(self) -> None:
+        original = self.unison_cents
         object.__setattr__(self, 'unison_cents', _cents(self.unison_cents))
+        if self.unison_weights is not None:
+            values = self.unison_weights
+            if not isinstance(values, (list, tuple)) or len(values) != len(self.unison_cents):
+                raise ValueError('unison_weights needs one nonnegative weight per string')
+            weights = [_number(x, 'unison_weights', 0, 16) for x in values]
+            total = sum(weights)
+            if total <= 0:
+                raise ValueError('unison_weights must have positive total weight')
+            # Preserve a canonical normalized tuple across repeated JSON loads.
+            # Dividing again by a one-ULP sum error otherwise changes its bits.
+            if abs(total-1.) <= 1e-15:
+                total = 1.
+            order = sorted(range(len(original)), key=lambda j: float(original[j]))
+            object.__setattr__(self, 'unison_weights', tuple(weights[j]/total for j in order))
         object.__setattr__(self, 'modes', _integer(self.modes, 'modes', 1, 64))
         object.__setattr__(self, 'contact_oversample', _integer(self.contact_oversample, 'contact_oversample', 1, 16))
         for name, low, high in [('stiffness', 0, 1), ('sustain', .0001, 120), ('brightness', 0, 1),
@@ -125,7 +141,8 @@ def _model(freq: float, sr: int, p: _Parameters) -> _Model:
     tap = np.sin(np.pi*h*.965)*h**(-1.2*register)
     for j in range(strings):
         sl = slice(j*modes, (j+1)*modes)
-        B[sl, j], readout[sl] = shape, tap/strings
+        B[sl, j] = shape
+        readout[sl] = tap/strings if p.unison_weights is None else tap*p.unison_weights[j]
         if body:
             cross = 2*modal_mass*(-1.)**(h+1)/(np.pi*h)
             M[sl, -1], M[-1, sl] = cross, cross
@@ -238,7 +255,7 @@ def _contact(model: _Model, freq: float, velocity: float, p: _Parameters,
     if model.eigenbasis_condition <= 1e10:
         fundamental = np.zeros(size)
         modes = (size-int(p.bridge_mass is not None))//strings
-        fundamental[np.arange(strings)*modes] = 1/strings
+        fundamental[np.arange(strings)*modes] = 1/strings if p.unison_weights is None else p.unison_weights
         out = np.r_[np.zeros(size), fundamental]
         residues = (out@model.V)*solve(model.V, initial)
         hz = model.poles.imag/(2*np.pi)
@@ -277,7 +294,8 @@ def _observe(model: _Model, contact: _Contact, n: int, sr: int) -> np.ndarray:
 
 
 def struck_unisons(freq: float, n: int, sr: int, velocity: float, *,
-                   unison_cents: tuple[float, ...] = (-1.4, 0., 1.4), modes: int = 64,
+                   unison_cents: tuple[float, ...] = (-1.4, 0., 1.4),
+                   unison_weights: tuple[float, ...] | None = None, modes: int = 64,
                    mechanical_band: float = 17640.,
                    stiffness: float = .00012, sustain: float = 8., brightness: float = .65,
                    hammer_mass_scale: float = 1., felt_stiffness_scale: float = 1.,
@@ -290,6 +308,10 @@ def struck_unisons(freq: float, n: int, sr: int, velocity: float, *,
     Offsets describe one to three strings, including coincident ones. Total modal
     mass and felt stiffness are divided across contacts, preserving the one-string
     limit. Positive damping and a discrete-gradient contact retain energy balance.
+    Optional unison_weights sets nonnegative relative output contributions for
+    the respective string offsets, normalized to sum one. Offset/weight pairs
+    are sorted together. None preserves the exact equal-weight observation;
+    weights do not change mechanical masses, contact forces or damping.
     The output is a designed velocity tap, not identified acoustic radiation.
     The physical modal band is fixed independently of output rate, bounded by
     modes. Observation is oversampled and decimated when needed; factors above
@@ -312,7 +334,8 @@ def struck_unisons(freq: float, n: int, sr: int, velocity: float, *,
         hammer_speed = _number(hammer_speed, 'hammer_speed', 0, 4)
     if not isinstance(pitch_compensation, (bool, np.bool_)):
         raise ValueError('pitch_compensation must be boolean')
-    p = _Parameters(unison_cents=unison_cents, modes=modes, mechanical_band=mechanical_band,
+    p = _Parameters(unison_cents=unison_cents, unison_weights=unison_weights,
+        modes=modes, mechanical_band=mechanical_band,
         stiffness=stiffness, sustain=sustain,
         brightness=brightness, hammer_mass_scale=hammer_mass_scale, felt_stiffness_scale=felt_stiffness_scale,
         contact_oversample=contact_oversample, radiation=radiation, radiation_loss_scale=radiation_loss_scale,

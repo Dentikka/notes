@@ -319,3 +319,66 @@ def test_speed_curves_rejected_on_instrument_and_note(curve):
     with pytest.raises(ValueError, match='hammer_speed_points'):
         CoupledPiano().voice(Voice(440., 69., .05, .5, {'hammer_speed_points': curve}),
                              RenderContext(8000, 60), np.random.default_rng(0))
+
+
+def test_string_weights_change_only_readout_and_preserve_the_generated_mechanical_state():
+    p = _Parameters(modes=8, unison_weights=(1., 8., 1.))
+    plain = _Parameters(modes=8)
+    a, b = _model(440., 16000, plain), _model(440., 16000, p)
+    for name in ['M', 'K', 'C', 'B', 'A', 'Lv', 'Lq', 'LF']:
+        np.testing.assert_array_equal(getattr(a, name), getattr(b, name))
+    ca, cb = _contact(a, 440., .6, plain), _contact(b, 440., .6, p)
+    np.testing.assert_array_equal(ca.initial, cb.initial)
+    assert ca.initial_energy == cb.initial_energy and ca.balance_error == cb.balance_error
+    assert p.unison_weights == (.1, .8, .1)
+    assert not np.array_equal(a.readout, b.readout)
+    # Observe identical full contact/free states through three individual taps;
+    # their weighted sum must equal the combined waveform at every sample.
+    opts = dict(freq=440., n=8000, sr=16000, velocity=.6, modes=8)
+    individual = [struck_unisons(**opts, unison_weights=tuple(float(i == j) for i in range(3))) for j in range(3)]
+    expected = sum(w*y for w, y in zip(p.unison_weights, individual, strict=True))
+    np.testing.assert_allclose(struck_unisons(**opts, unison_weights=(1., 8., 1.)), expected, atol=1e-12)
+
+
+def test_string_offsets_and_weights_sort_together_and_coincident_limit_is_preserved():
+    a = CoupledPiano(modes=8, unison_cents=(2., -2., 0.), unison_weights=(1., 3., 6.))
+    b = CoupledPiano(modes=8, unison_cents=(-2., 0., 2.), unison_weights=(3., 6., 1.))
+    assert a == b
+    opts = dict(freq=440., n=3000, sr=16000, velocity=.6, modes=8)
+    single = struck_unisons(**opts, unison_cents=(0.,))
+    three = struck_unisons(**opts, unison_cents=(0., 0., 0.), unison_weights=(0., 3., 1.))
+    np.testing.assert_allclose(single, three, rtol=1e-7, atol=1e-11)
+
+
+@pytest.mark.parametrize('weights', [(), (1.,), (0., 0., 0.), (-1., 1., 1.),
+                                   (True, 1., 1.), (np.nan, 1., 1.), (np.inf, 1., 1.), (17., 1., 1.)])
+def test_invalid_string_weights_are_rejected_before_empty_render(weights):
+    with pytest.raises(ValueError, match='unison_weights'):
+        struck_unisons(440., 0, 16000, .6, unison_weights=weights)
+    with pytest.raises(ValueError, match='unison_weights'):
+        CoupledPiano(unison_weights=weights)
+
+
+def test_weighted_observation_tuning_follows_the_observed_string_and_json_note_overrides():
+    audit = {}
+    struck_unisons(440., 800, 16000, .6, modes=8, unison_cents=(-20., 0., 20.),
+                   unison_weights=(1., 0., 0.), pitch_compensation=True, _audit=audit)
+    assert abs(audit['tuning'][-1]['error_cents']) < .05
+    assert audit['tuning'][-1]['bare_frequency'] > 440.
+    inst = CoupledPiano(modes=8, unison_weights=(1., 8., 1.), release=.03, ring_time=.1)
+    assert build_instrument(inst.to_spec()) == inst
+    note = Note('A4', .05, .6).param(unison_weights=None)
+    score = Song(Track('p', inst)(note), sample_rate=8000, bpm=60, loudness=None).compile()
+    restored = Score.from_json(score.to_json())
+    plain = Song(Track('p', CoupledPiano(modes=8, release=.03, ring_time=.1))(
+        Note('A4', .05, .6)), sample_rate=8000, bpm=60, loudness=None).compile()
+    np.testing.assert_array_equal(render_score(restored).audio, render_score(plain).audio)
+
+
+def test_normalized_string_weights_are_canonical_across_repeated_json_loads():
+    for weights in [(1., 6., 15.), (7., 13., 1.), (1e-5, .0007, .009)]:
+        original = CoupledPiano(unison_weights=weights)
+        current = original
+        for _ in range(5):
+            current = build_instrument(current.to_spec())
+            assert current == original

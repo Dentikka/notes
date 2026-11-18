@@ -345,6 +345,14 @@ aggregate single-string limit. Unlike the existing unison readout, each string
 has its own contact state. No waveform, measured phase or impulse response is
 accepted. `examples/coupled_piano.py` supplies a short DSL demonstration.
 
+Optional `unison_weights=(.115, .77, .115)` assigns relative output contributions
+to the three strings. Nonnegative weights are normalized to sum one, and each
+offset/weight pair stays together when sorted. This leaves mechanical masses,
+contact force and damping unchanged. `None` preserves the original equal output
+exactly; per-note `unison_weights=None` resets an inherited weighting. Pitch
+compensation follows the weighted fundamental observation. This is a designed
+readout control, not measured soundboard radiation or an accepted piano preset.
+
 The compression-only contact uses a discrete potential gradient and midpoint
 linear mechanics. `modes=1..64` and `mechanical_band=17640` bound the uncoupled
 string basis independently of output sample rate. Observation is oversampled
