@@ -19,16 +19,78 @@ they decay, and how they change with the strength of the hit:
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 import numpy as np
 from scipy.signal import istft, stft
+from scipy.special import jn_zeros
 
-from notes.engine.dsp import filt
+from notes.engine.dsp import filt, stable_seed
 
 __all__ = ["MEMBRANE_RATIOS", "impact", "membrane", "metal", "modes", "resonate", "wash"]
 
 #: Mode frequencies of an ideal circular membrane relative to the fundamental (j_mn / j_01).
 MEMBRANE_RATIOS = (1.000, 1.594, 2.136, 2.296, 2.653, 2.918, 3.156, 3.501, 3.600, 3.652, 4.060, 4.154)
 _CHUNK = 48  # modes per vectorised block: bounds memory for long cymbals
+_MEMBRANE_POOL = 512
+
+
+@lru_cache(maxsize=1)
+def _circular_membrane_modes() -> tuple[np.ndarray, np.ndarray]:
+    """First512 distinct positive circular-membrane roots and angular orders.
+
+    One scalar readout represents each eigenfrequency; degenerate angular
+    orientations are not separately resolved. Existing low-mode ratios remain
+    untouched. The next excluded angular/radial roots certify the cutoff.
+    """
+    extent = 50
+    while True:
+        entries = sorted((float(root), order) for order in range(extent+1) for root in jn_zeros(order, extent))
+        cutoff = entries[_MEMBRANE_POOL-1][0]
+        if cutoff < jn_zeros(extent+1, 1)[0] and cutoff < jn_zeros(0, extent+1)[-1]:
+            break
+        extent *= 2
+    fundamental = jn_zeros(0, 1)[0]
+    ratios = np.array([root/fundamental for root, _ in entries[:_MEMBRANE_POOL]])
+    orders = np.array([order for _, order in entries[:_MEMBRANE_POOL]])
+    ratios.setflags(write=False)
+    orders.setflags(write=False)
+    return ratios, orders
+
+
+def _membrane_upper_modes(t: np.ndarray, f0: float, tau: float, state: object, sr: int, *,
+                          n_modes: int, damping: float, glide: float, glide_tau: float) -> np.ndarray:
+    """Additional modes8..N, with a count-independent procedural random pool.
+
+    No draws are taken from the main hit generator. Frequencies exceeding .44sr
+    at maximum prescribed glide are discarded without moving the other poles.
+    Amplitudes/readout and losses are empirical, not an identified strike.
+    """
+    t = np.asarray(t, dtype=float)
+    if (t.ndim != 1 or not np.isfinite(t).all() or np.any(t < 0)
+            or not isinstance(sr, int) or sr < 1000 or not isinstance(n_modes, int)
+            or isinstance(n_modes, bool) or not 7 <= n_modes <= _MEMBRANE_POOL):
+        raise ValueError('invalid upper membrane time, rate or mode count')
+    if (not np.isfinite([f0, tau, damping, glide, glide_tau]).all() or min(f0, tau, glide_tau) <= 0
+            or min(damping, glide) < 0):
+        raise ValueError('upper membrane needs positive frequencies/times and nonnegative damping/glide')
+    result = np.zeros(len(t))
+    if n_modes == 7 or not len(t):
+        return result
+    rng = np.random.default_rng(stable_seed('tom-extra-modes', state))
+    ratios, orders = _circular_membrane_modes()
+    ratios = ratios*(1+rng.normal(0, .01, _MEMBRANE_POOL))
+    amplitudes = np.where(orders == 0, 1., .35)/ratios*(1+rng.normal(0, .15, _MEMBRANE_POOL))
+    phases = rng.uniform(0, 2*np.pi, _MEMBRANE_POOL)
+    index = np.arange(_MEMBRANE_POOL)
+    keep = (index >= 7) & (index < n_modes) & (f0*ratios*(1+glide) < sr*.44)
+    ratios, amplitudes, phases = ratios[keep], amplitudes[keep], phases[keep]
+    warp = t+glide*glide_tau*(1-np.exp(-t/glide_tau)) if glide else t
+    for start in range(0, len(ratios), _CHUNK):
+        r = ratios[start:start+_CHUNK, None]
+        result += np.sum(amplitudes[start:start+_CHUNK, None]*np.exp(-t[None, :]/(tau/r**damping))
+            * np.sin(2*np.pi*f0*r*warp[None, :]+phases[start:start+_CHUNK, None]), axis=0)
+    return result
 
 
 def modes(

@@ -809,6 +809,18 @@ Constructor controls affect only toms; per-note overrides on other pieces raise.
 Defaults .22/.08/1 preserve the old source. This is prescribed calibration,
 not identified hit force, a coupled-head model, or a new accepted kit preset.
 
+`tom_modes=7..512` optionally extends the legacy seven head modes with higher
+ideal circular-membrane eigenfrequencies computed from Bessel roots.
+The count applies to the batter head; the secondary head retains three modes.
+`tom_damping>=0` controls the frequency-dependent loss exponent of both heads,
+separately from fundamental decay and pitch sag. The old seven modes, stick and
+noise keep their original random stream; extra modes use a separate generated,
+count-independent pool. Modes above .44 of the output rate at maximum glide
+are discarded without moving the other frequencies. Constructor/per-note
+controls affect toms only. Defaults 7/1.6 preserve the original kit. The added
+amplitudes, spatial readout and losses are empirical; this is not a coupled-head
+or measured physical model and does not replace the accepted kit palette.
+
 `notes.ears.band_peak_trajectory(audio, sr, band=(60, 220), windows=...)` measures
 dominant low-band peaks across specified clip windows, with contrast/relative
 level support and no phase output. `compare_peak_trajectories(reference, candidate)`
