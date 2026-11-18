@@ -108,7 +108,7 @@ def _sample_damping_steps(model: _State, changes: list[tuple[float, _State]],
     wave = np.empty(n)
     at = 0
     for time, following in [*changes, (n/sr, model)]:
-        end = min(n, round(time*sr))
+        end = n if time >= n/sr else round(time*sr)
         count = end-at
         if count > 0:
             part = _sample(model, state[:mechanical_size], output, count, sr, cutoff, rounding)

@@ -93,6 +93,13 @@ def test_redundant_schedule_preserves_original_noncontact_path():
     np.testing.assert_array_equal(base, zero)
 
 
+def test_far_future_loss_change_does_not_overflow_or_change_the_current_note():
+    opts = dict(position=.08, contact_width=.04, resistance=0., modes=8, peak=0., mechanical_band=2000.)
+    base = palm_string(110., 400, 8000, **opts)
+    later = palm_string(110., 400, 8000, partial_t60_steps=((1e308, (1.,)),), **opts)
+    np.testing.assert_array_equal(base, later)
+
+
 @pytest.mark.parametrize(
     "steps",
     [
