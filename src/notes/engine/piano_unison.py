@@ -62,7 +62,7 @@ class _Parameters:
         object.__setattr__(self, 'contact_oversample', _integer(self.contact_oversample, 'contact_oversample', 1, 16))
         for name, low, high in [('stiffness', 0, 1), ('sustain', .0001, 120), ('brightness', 0, 1),
                                 ('mechanical_band', 100, 48000),
-                                ('hammer_mass_scale', .25, 4), ('felt_stiffness_scale', .25, 16),
+                                ('hammer_mass_scale', .25, 4), ('felt_stiffness_scale', .01, 16),
                                 ('radiation_loss_scale', 0, 4), ('bridge_hz', 20, 20000), ('bridge_q', 1, 1000)]:
             object.__setattr__(self, name, _number(getattr(self, name), name, low, high, positive=name == 'sustain'))
         if self.bridge_mass is not None:
