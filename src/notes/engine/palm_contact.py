@@ -9,16 +9,18 @@ from scipy.linalg import eig, eigh, expm, solve
 from scipy.optimize import linear_sum_assignment
 from scipy.signal import resample_poly
 
-from notes.engine.articulation import _partial_gains
+from notes.engine.articulation import _partial_gains, _partial_t60s
 from notes.engine.mechanical_string import _initial_state, _mechanics, _output, _point, _State
 
 
 @lru_cache(maxsize=32)
 def _state(bare: float, modes: int, stiffness: float, body_hz: float, body_q: float, peak: float,
            tension: float, length: float, sustain: float, treble_decay: float,
-           position: float, width: float, resistance: float) -> _State:
+           position: float, width: float, resistance: float,
+           partial_t60s: tuple[float | None, ...] = ()) -> _State:
     M, K, C, h = _mechanics(bare, modes=modes, stiffness=stiffness, body_hz=body_hz, body_q=body_q,
-                           peak=peak, tension=tension, length=length, sustain=sustain, treble_decay=treble_decay)
+                           peak=peak, tension=tension, length=length, sustain=sustain, treble_decay=treble_decay,
+                           partial_t60s=partial_t60s)
     if width:
         nodes, weights = np.polynomial.legendre.leggauss(32)
         shapes = np.column_stack([_point(h, position+width*x/2, body=peak > 0) for x in nodes])
@@ -103,7 +105,8 @@ def palm_string(freq: float, n: int, sr: int, *, position: float, contact_width:
                 release_motion: float = 0., modes: int = 64, stiffness: float = 4e-5,
                 body_hz: float = 125., body_q: float = 20., peak: float = .01,
                 tension: float = 70., length: float = .65, sustain: float = 9.,
-                treble_decay: float = 2.5, partial_gains: tuple[float, ...] = ()) -> np.ndarray:
+                treble_decay: float = 2.5, partial_gains: tuple[float, ...] = (),
+                partial_t60s: tuple[float | None, ...] = ()) -> np.ndarray:
     """Mechanical velocity with a stationary, uniformly distributed viscous contact.
 
     Contact coordinates are fractions of the vibrating length; resistance is the
@@ -113,8 +116,13 @@ def palm_string(freq: float, n: int, sr: int, *, position: float, contact_width:
     Low output rates use an oversampled observation and polyphase decimation.
     Optional ``partial_gains`` changes physical string-coordinate readout only;
     contact mechanics, initial energy and the bridge readout remain unchanged.
+    ``partial_t60s`` overrides isolated string-coordinate damping times before
+    adding the positive viscous contact. None entries retain the original losses;
+    the contact/body can change the actual coupled pole decay times.
     """
     gains = _partial_gains(partial_gains)
+    decays = _partial_t60s(partial_t60s)
+    losses = {'partial_t60s': decays} if decays else {}
     if (not isinstance(n, int) or isinstance(n, bool) or n < 0 or not isinstance(sr, int)
             or isinstance(sr, bool) or sr < 4000 or not np.isfinite(freq) or not 20 <= freq < sr*.44):
         raise ValueError('palm string needs integer length/rate, sr>=4000 and 20<=freq<.44*sr')
@@ -145,7 +153,7 @@ def palm_string(freq: float, n: int, sr: int, *, position: float, contact_width:
         hz = bare*h*np.sqrt((1+stiffness*h*h)/(1+stiffness))
         count = max(1, int((hz < mechanical_band).sum()))
         model = _state(float(bare), count, stiffness, body_hz, body_q, peak,
-                       tension, length, sustain, treble_decay, position, contact_width, resistance)
+                       tension, length, sustain, treble_decay, position, contact_width, resistance, **losses)
         observed = model['string_poles'][0].imag/(2*np.pi)
         if not np.isfinite(observed) or observed <= 0:
             raise ValueError('palm contact overdamps the assigned fundamental; a pitched source is unavailable')

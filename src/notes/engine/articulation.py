@@ -44,6 +44,28 @@ def _partial_gains(value: object, *, name: str = 'partial_gains') -> tuple[float
     return tuple(float(x) for x in gains)
 
 
+def _partial_t60s(value: object) -> tuple[float | None, ...]:
+    """Optional positive loss times for individual mechanical string coordinates."""
+    if not isinstance(value, (tuple, list)) or len(value) > 80:
+        raise ValueError('partial_t60s needs at most 80 positive seconds or None entries')
+    result: list[float | None] = []
+    for item in value:
+        if item is None:
+            result.append(None)
+            continue
+        try:
+            seconds = float(item)
+        except (ValueError, TypeError) as error:
+            raise ValueError('partial_t60s needs finite positive seconds or None') from error
+        if isinstance(item, (bool, np.bool_)) or not np.isfinite(seconds) or seconds <= 0:
+            raise ValueError('partial_t60s needs finite positive seconds or None')
+        with np.errstate(over='ignore', divide='ignore'):
+            if not np.isfinite(np.log(1000)/seconds):
+                raise ValueError('partial_t60s produces a nonfinite damping rate')
+        result.append(seconds)
+    return tuple(result)
+
+
 def _partial_gain_points(value: object, *, name: str = 'partial_gain_points') -> tuple[tuple[float, ...], ...]:
     """Rows of seconds and linear mode gains; shared by harmonic/modal readouts."""
     if not isinstance(value, (tuple, list)) or len(value) > 512:
