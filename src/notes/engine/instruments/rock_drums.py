@@ -63,13 +63,17 @@ def _snare(sr: int, rng: np.random.Generator, vel: float, k: float, d: float, wi
     return y
 
 
-def _tom(sr: int, rng: np.random.Generator, vel: float, f0: float, d: float, ring: float) -> np.ndarray:
+def _tom(sr: int, rng: np.random.Generator, vel: float, f0: float, d: float, ring: float, *,
+         glide: float = .22, glide_time: float = .08, velocity_glide: float = 1.) -> np.ndarray:
     """Batter head (pitch sagging over ~80 ms after a hard hit), the resonant head a hair
     higher and quieter (a slow beat; a few per cent apart they would wobble like a
     tremolo), the skin's dense upper modes as a quick burst of noise, the stick, the shell."""
     t = _time(4.0 * ring * d + 0.2, sr)
-    batter = membrane(t, f0, ring * d, rng, strike=0.35, glide=0.22 * vel, glide_tau=0.08, n_modes=7, damping=1.6)
-    reso = membrane(t, 1.008 * f0, 1.1 * ring * d, rng, strike=0.1, glide=0.05 * vel, glide_tau=0.08, n_modes=3)
+    strength = (1-velocity_glide)+velocity_glide*vel
+    batter = membrane(t, f0, ring * d, rng, strike=0.35, glide=glide * strength,
+                      glide_tau=glide_time, n_modes=7, damping=1.6)
+    reso = membrane(t, 1.008 * f0, 1.1 * ring * d, rng, strike=0.1,
+                    glide=(0.05 * strength)*(glide/.22), glide_tau=glide_time, n_modes=3)
     skin = wash(t, sr, rng, low=0.9 * f0, high=7000.0, tau_low=0.06, tau_high=0.012, tilt=-1.5)
     skin /= max(float(np.max(np.abs(skin))), 1e-9)
     stick = impact(t.size, sr, rng, hardness=0.6 + 0.3 * vel, length=0.0008)
@@ -149,6 +153,12 @@ class RockKit(Instrument):
     Rim and pedal hat do not expose these controls. Longer per-note decays
     extend the render tail without changing note times. Sound-name overrides
     resolve choke groups from the actual sound rather than the placeholder pitch.
+    ``tom_glide`` sets the initial relative frequency lift at full strength,
+    ``tom_glide_time`` its relaxation time, separately from amplitude decay.
+    ``tom_velocity_glide`` mixes fixed strength (0) with nominal velocity (1).
+    The secondary head retains its original proportional lift. These controls
+    accept per-note overrides on toms only. Defaults preserve the previous
+    waveforms; fitted controls do not identify a real head/contact or a preset.
     """
 
     program: int | None = 0
@@ -160,12 +170,18 @@ class RockKit(Instrument):
     wires: float = 0.8
     rimshot: float = 0.3
     level: float = 0.9
+    tom_glide: float = .22
+    tom_glide_time: float = .08
+    tom_velocity_glide: float = 1.
 
     def __post_init__(self) -> None:
         if not np.isfinite(self.tune):
             raise ValueError('tune must be finite')
         if not np.isfinite(self.decay) or self.decay <= 0:
             raise ValueError('decay must be finite and positive')
+        for name, value in self._note_controls({'tom_glide': self.tom_glide, 'tom_glide_time': self.tom_glide_time,
+                                                'tom_velocity_glide': self.tom_velocity_glide}).items():
+            object.__setattr__(self, name, value)
         if not np.isfinite(self.kick_damping) or self.kick_damping <= 0:
             raise ValueError("kick_damping must be finite and positive")
         if not np.isfinite(self.kick_body) or self.kick_body < 0:
@@ -177,15 +193,17 @@ class RockKit(Instrument):
     @staticmethod
     def _note_controls(params: Mapping[str, object]) -> dict[str, float]:
         controls = {}
-        for name in ('tune', 'decay'):
+        for name in ('tune', 'decay', 'tom_glide', 'tom_glide_time', 'tom_velocity_glide'):
             if name not in params:
                 continue
             try:
                 value = float(params[name])
             except (TypeError, ValueError) as error:
                 raise ValueError(f'per-note {name} must be finite') from error
-            if not np.isfinite(value) or (name == 'decay' and value <= 0):
-                raise ValueError(f'per-note {name} must be finite; decay must be positive')
+            if (not np.isfinite(value) or (name in ('decay', 'tom_glide_time') and value <= 0)
+                    or (name == 'tom_glide' and value < 0)
+                    or (name == 'tom_velocity_glide' and not 0 <= value <= 1)):
+                raise ValueError(f'per-note {name} must be finite and inside its documented range')
             controls[name] = value
         return controls
 
@@ -216,7 +234,8 @@ class RockKit(Instrument):
             "cowbell": (lambda r: _cowbell(sr, r, k, d), 0.45),
         }
         for name, (f0, ring) in _TOM.items():
-            sounds[name] = (lambda r, f=f0, g=ring: _tom(sr, r, vel, f * k, d, g), 0.75)
+            sounds[name] = (lambda r, f=f0, g=ring: _tom(sr, r, vel, f * k, d, g,
+                glide=self.tom_glide, glide_time=self.tom_glide_time, velocity_glide=self.tom_velocity_glide), 0.75)
         return sounds
 
     def voice(self, v: Voice, ctx: RenderContext, rng: np.random.Generator) -> np.ndarray:
@@ -226,6 +245,8 @@ class RockKit(Instrument):
             raise ValueError(f'per-note tune is unsupported for {name}')
         if 'decay' in controls and name in ('rim', 'pedal_hat'):
             raise ValueError(f'per-note decay is unsupported for {name}')
+        if any(key.startswith('tom_') for key in controls) and name not in _TOM:
+            raise ValueError('per-note tom glide controls require a tom sound')
         kit = replace(self, **controls) if controls else self
         sounds = kit._sounds(ctx.sr, float(np.clip(v.vel, 0.0, 1.0)))
         if name not in sounds:

@@ -798,6 +798,17 @@ Longer per-note decays extend the renderer's allocation through
 both kits, even when attached to another MIDI pitch. A kick on a hat-numbered
 placeholder no longer chokes an open hat. Default voices retain their waveform.
 
+Tom pitch sag is independently configurable with `tom_glide` (nonnegative
+initial fractional lift), `tom_glide_time` (positive seconds), and
+`tom_velocity_glide` (0..1). The effective lift is `tom_glide` times the blend
+between fixed strength and nominal velocity. Zero velocity coupling keeps the
+pitch gesture fixed while impact brightness and output level still follow
+velocity. Both heads use the time constant; the secondary lift retains its
+original proportion. `decay` still controls amplitude damping separately.
+Constructor controls affect only toms; per-note overrides on other pieces raise.
+Defaults .22/.08/1 preserve the old source. This is prescribed calibration,
+not identified hit force, a coupled-head model, or a new accepted kit preset.
+
 `notes.ears.band_peak_trajectory(audio, sr, band=(60, 220), windows=...)` measures
 dominant low-band peaks across specified clip windows, with contrast/relative
 level support and no phase output. `compare_peak_trajectories(reference, candidate)`
