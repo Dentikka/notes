@@ -89,6 +89,32 @@ def test_renderer_rate_can_differ_from_resampled_analysis_rate():
     assert abs(fit.pick_cutoff / 6555.0 - 1) < 0.05
 
 
+@pytest.mark.parametrize("reference", ["open", "vibrating"])
+def test_single_stroke_recovery_keeps_known_pickup_exactly_fixed(reference):
+    data = observations(reference)
+    fit = fit_modal_pluck([data[1]], pickup_width=0.03, max_partials=8,
+                         pick_reference=reference, fixed_pickup=0.079, pickup_bounds=(0.025, 0.03))
+    assert fit.converged and fit.cost < 1 and fit.observations == 1
+    assert not fit.pickup_fitted and fit.pickup_position == 0.079
+    assert all(t.pickup_position == 0.079 for t in fit.trials)
+    assert not any(b.startswith("pickup_position:") for b in fit.active_bounds)
+    assert fit.jacobian_condition is not None and np.isfinite(fit.jacobian_condition)
+    assert abs(fit.pick_position - 0.137) < 0.002
+    assert abs(fit.pick_cutoff / 6555.0 - 1) < 0.05
+
+
+def test_single_observation_requires_explicit_fixed_readout_and_feasible_aperture():
+    data = observations()
+    with pytest.raises(ValueError, match="different pitches"):
+        fit_modal_pluck([data[1]])
+    with pytest.raises(ValueError, match="aperture"):
+        fit_modal_pluck([data[1]], fixed_pickup=0.9)
+    with pytest.raises(ValueError, match="aperture"):
+        fit_modal_pluck([data[1]], fixed_pickup=0.001)
+    with pytest.raises(ValueError, match="one known-note"):
+        fit_modal_pluck([], fixed_pickup=0.079)
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [
@@ -108,6 +134,11 @@ def test_renderer_rate_can_differ_from_resampled_analysis_rate():
         {"coarse_seeds": None},
         {"model_sample_rate": True},
         {"model_sample_rate": 2000},
+        {"fixed_pickup": True},
+        {"fixed_pickup": np.nan},
+        {"fixed_pickup": -0.1},
+        {"fixed_pickup": "0.079"},
+        {"fixed_pickup": [0.079]},
     ],
 )
 def test_invalid_source_fit_options(kwargs):

@@ -56,6 +56,7 @@ class ModalPluckGeometryFit:
     jacobian_condition: float | None
     trials: tuple[ModalPluckTrial, ...]
     model_sample_rates: tuple[int, ...] = ()
+    pickup_fitted: bool = True
 
     def note_controls(self, pitch: float, string: int | None = None) -> dict[str, float | int]:
         """Per-note open-length controls for ModalString(fretting=True).
@@ -100,6 +101,7 @@ def fit_modal_pluck(
     max_nfev: int = 100, polish_nfev: int = 200,
     coarse_seeds: bool = True,
     model_sample_rate: int | None = None,
+    fixed_pickup: float | None = None,
 ) -> ModalPluckGeometryFit:
     """Fit three shared controls for the uncoupled, spatially rounded ModalString.
 
@@ -126,11 +128,22 @@ def fit_modal_pluck(
     By default the electrical model uses each observation's analysis rate.
     Set model_sample_rate to the intended renderer rate when analysis audio was
     resampled; the discrete electrical filter otherwise has a different response.
+    With fixed_pickup, hold that open-length readout position exactly and fit only
+    pluck position/bandwidth; a single known-note observation is then sufficient.
+    This permits conditional stroke reconstruction without moving the pickup.
+    The fixed position overrides pickup_bounds, must fit every observed string
+    aperture, and is explicitly reported as pickup_fitted=False. It need not be
+    the actual physical pickup; conditional recovery is not an unseen-note test.
     """
     if pick_reference not in ('open', 'vibrating', 'auto'):
         raise ValueError('pick_reference must be open, vibrating or auto')
     if not isinstance(coarse_seeds, bool):
         raise ValueError('coarse_seeds must be boolean')
+    if fixed_pickup is not None and (
+            isinstance(fixed_pickup, (bool, np.bool_)) or not np.isscalar(fixed_pickup)
+            or not isinstance(fixed_pickup, (int, float, np.integer, np.floating))
+            or not np.isfinite(fixed_pickup) or not 0 < fixed_pickup < 1):
+        raise ValueError('fixed_pickup must be a finite open-length position inside (0,1) or None')
     if model_sample_rate is not None and (
             isinstance(model_sample_rate, bool) or not isinstance(model_sample_rate, int) or model_sample_rate < 4000):
         raise ValueError('model_sample_rate must be an integer >=4000 or None')
@@ -152,7 +165,10 @@ def fit_modal_pluck(
         observations = list(observations)
     except TypeError as error:
         raise ValueError('a sequence of observations required') from error
-    if len(observations) < 2 or any(not isinstance(o, ModalPluckObservation) for o in observations):
+    minimum_observations = 2 if fixed_pickup is None else 1
+    if len(observations) < minimum_observations or any(not isinstance(o, ModalPluckObservation) for o in observations):
+        if fixed_pickup is not None:
+            raise ValueError('at least one known-note observation required with fixed_pickup')
         raise ValueError('at least two observations at different pitches required')
     try:
         pitches = [float(o.pitch) for o in observations]
@@ -160,7 +176,7 @@ def fit_modal_pluck(
         raise ValueError('finite known pitches required') from error
     if not np.isfinite(pitches).all():
         raise ValueError('finite known pitches required')
-    if len(set(pitches)) < 2:
+    if fixed_pickup is None and len(set(pitches)) < 2:
         raise ValueError('at least two observations at different pitches required')
     data = []
     model_rates: set[int] = set()
@@ -235,7 +251,12 @@ def fit_modal_pluck(
         if reference == 'open':
             actual[0, 1] = min(actual[0, 1], shortest*(1-1e-9))
         actual[1, 1] = min(actual[1, 1], shortest-pickup_width/2-shortest*1e-9)
-        if np.any(actual[:, 1] <= actual[:, 0]):
+        free = np.array([0, 1, 2] if fixed_pickup is None else [0, 2])
+        if fixed_pickup is not None:
+            if fixed_pickup < pickup_width/2 or fixed_pickup+pickup_width/2 >= shortest:
+                raise ValueError('fixed pickup aperture must fit inside every observed vibrating string')
+            actual[1, :] = fixed_pickup
+        if np.any(actual[free, 1] <= actual[free, 0]):
             raise ValueError('no feasible positions within the shortest observed vibrating string')
         lower, upper = actual[:, 0].copy(), actual[:, 1].copy()
         lower[2], upper[2] = np.log(lower[2]), np.log(upper[2])
@@ -257,9 +278,17 @@ def fit_modal_pluck(
         def solve(x: np.ndarray, budget: int, continued: bool = False,
                   initialization: str = 'local', *, ref: str = reference,
                   lo: np.ndarray = lower, hi: np.ndarray = upper,
+                  indices: np.ndarray = free,
                   objective: Callable[[np.ndarray], np.ndarray] = errors) -> OptimizeResult:
-            fit = least_squares(objective, np.clip(x, lo, hi), bounds=(lo, hi), loss='soft_l1',
+            def expand(values: np.ndarray) -> np.ndarray:
+                full = lo.copy()
+                full[indices] = values
+                return full
+
+            fit = least_squares(lambda values: objective(expand(values)), np.clip(x, lo, hi)[indices],
+                                bounds=(lo[indices], hi[indices]), loss='soft_l1',
                                 f_scale=2, max_nfev=budget, ftol=1e-9, xtol=1e-9, gtol=1e-9)
+            fit.x = expand(fit.x)
             trial = ModalPluckTrial(ref, float(fit.x[0]), float(fit.x[1]), float(np.exp(fit.x[2])),
                                     float(fit.cost), int(fit.nfev), bool(fit.success), continued, initialization)
             trials.append(trial)
@@ -271,7 +300,7 @@ def fit_modal_pluck(
         if coarse_seeds:
             seeds = []
             for p0 in np.linspace(lower[0], upper[0], 33):
-                for u0 in np.linspace(lower[1], upper[1], 25):
+                for u0 in ([fixed_pickup] if fixed_pickup is not None else np.linspace(lower[1], upper[1], 25)):
                     for log_cut0 in np.linspace(lower[2], upper[2], 3):
                         x = np.array([p0, u0, log_cut0])
                         residual = errors(x)
@@ -279,7 +308,8 @@ def fit_modal_pluck(
                         seeds.append((cost, x))
             chosen: list[np.ndarray] = []
             for _, x in sorted(seeds, key=lambda s: s[0]):
-                if any(np.linalg.norm((x[:2]-other[:2])/(upper[:2]-lower[:2])) < .05 for other in chosen):
+                span = np.where(upper[:2] > lower[:2], upper[:2]-lower[:2], 1.)
+                if any(np.linalg.norm((x[:2]-other[:2])/span) < .05 for other in chosen):
                     continue
                 solve(x, max_nfev, initialization='coarse')
                 chosen.append(x)
@@ -291,6 +321,8 @@ def fit_modal_pluck(
     best, fit, lower, upper = min(solutions, key=lambda s: s[0].cost)
     active_bounds = []
     for i, name in enumerate(('pick_position', 'pickup_position', 'pick_cutoff')):
+        if i == 1 and fixed_pickup is not None:
+            continue
         if (fit.x[i]-lower[i])/(upper[i]-lower[i]) < 1e-4:
             active_bounds.append(name+':lower')
         if (upper[i]-fit.x[i])/(upper[i]-lower[i]) < 1e-4:
@@ -299,4 +331,5 @@ def fit_modal_pluck(
     condition = float(singular[0]/singular[-1]) if singular[-1] > 1e-15 else None
     return ModalPluckGeometryFit(best.pick_reference, best.pick_position, best.pickup_position, best.pick_cutoff,
                                 best.cost, best.converged, len(data), sum(int(d.support.sum()) for d in data),
-                                tuple(active_bounds), condition, tuple(trials), tuple(sorted(model_rates)))
+                                tuple(active_bounds), condition, tuple(trials), tuple(sorted(model_rates)),
+                                fixed_pickup is None)
