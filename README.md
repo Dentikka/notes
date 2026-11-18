@@ -784,8 +784,14 @@ nominal cycles and fit the post-onset audio, within 0.01..0.5 seconds. This impr
 frequency resolution while smoothing spectral changes in time; RMS attack timing
 is still measured separately. Both profiles must use the same window. Explicit
 windows use metric versions 4 (fixed bands) or 5 (tracked bands); defaults are
-numerically unchanged. A peak near the prior is not a unique perceived-pitch
-certificate when several modes are present.
+numerically unchanged. The anchor uses the median of supported local peaks within
+50 cents at complete-window centres in the early region. If fewer than two are
+supported, `frequency_supported` is false: the supplied frequency is only a band
+anchor, and comparisons return `pitch_cents=null` with `pitch_supported=false`.
+The CLI also reports missing frequency estimates as null. Even supported peaks
+are not a unique perceived-pitch certificate when several modes are present.
+Explicit-window profile-set audits keep cases with unsupported frequencies from
+passing the no-regression guard, listing them separately from measured regressions.
 
 `notes audit-note ... --peak-window .02 .15 --peak-window .4 1` also reports
 independent dominant peaks in a broader half-to-one-and-a-half-fundamental band.

@@ -252,6 +252,12 @@ def _audit_note(args: argparse.Namespace) -> int:
               "git_revision": _git_revision(), **compare_profiles(*profiles)}
     if args.analysis_window is not None:
         report['analysis_window'] = profiles[0].analysis_window
+        report['frequency_supported'] = {name: profile.frequency_supported
+                                         for name, profile in zip(('reference', 'render'), profiles, strict=True)}
+        if not profiles[0].frequency_supported:
+            report['reference_f0'] = None
+        if not profiles[1].frequency_supported:
+            report['render_f0'] = None
     if args.peak_window:
         from notes.ears.percussion import band_peak_trajectory
 

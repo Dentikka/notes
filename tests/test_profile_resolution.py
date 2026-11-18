@@ -41,6 +41,28 @@ def test_broad_peaks_reveal_the_early_low_mode_and_late_known_note_component():
     np.testing.assert_allclose(p.frequency_hz, [490.9, 603.2], atol=0.05)
 
 
+def test_missing_in_prior_fundamental_returns_no_pitch_comparison_instead_of_a_false_zero():
+    t = np.arange(2 * SR) / SR
+    a = profile_note(np.sin(2 * np.pi * 440 * t), SR, 440., analysis_window=.12)
+    b = profile_note(np.sin(2 * np.pi * 880 * t), SR, 440., analysis_window=.12)
+    assert a.frequency_supported is True and b.frequency_supported is False
+    assert b.f0 == 440.  # Only the supplied anchor remains available for bands.
+    report = compare_profiles(a, b)
+    assert report['pitch_supported'] is False and report['pitch_cents'] is None
+    audit = audit_profile_set({'x': b}, {'x': b}, {'x': b})
+    assert audit['regressions'] == [] and audit['no_regression'] is False
+    assert audit['frequency_unverified_cases'] == ['x']
+
+
+def test_explicit_window_uses_supported_local_peaks_not_an_unresolved_time_average():
+    with pytest.raises(ValueError, match='analysis_window'):
+        profile_note(hybrid(), SR, 587.5, analysis_window=False)
+    p = profile_note(hybrid(), SR, 587.5, analysis_window=.12, partial_mode='fixed')
+    assert p.frequency_supported is True and p.pitch_tracking_valid.any()
+    use = (p.time >= .25) & (p.time <= .4) & p.pitch_tracking_valid
+    assert np.median(p.fundamental_hz[use]) == pytest.approx(603.2, abs=.1)
+
+
 def test_new_resolution_preserves_gain_and_onset_nuisance_handling():
     # Keep the onset away from the file boundary: the symmetric RMS detector
     # otherwise cannot recover its normal pre-onset margin from a cropped clip.
