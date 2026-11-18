@@ -971,6 +971,24 @@ It fits normalized spectral shape, not loudness, tuning, recorded phases or a
 transferable preset. Unsupported reference estimates use a white-noise bound,
 which is not a general noise classifier.
 
+`notes.ears.fit_modal_pluck(observations, pick_reference="auto")` fits three
+shared effective controls: pluck position, pickup position and force bandwidth.
+Each `ModalPluckObservation` supplies a known pitch/string, fundamental, stiffness,
+consecutive modal envelopes and optional previously calibrated loss times and
+trajectory support mask. At least two different pitches are required. The model
+assumes uncoupled spatially rounded strings, zero bridge/contact coupling and a
+specified pickup aperture/electrical lowpass; it does not infer those assumptions.
+The result reports all local/coarse starts, convergence, active bounds and
+Jacobian conditioning. Point excitation and readout positions may exchange roles:
+these effective parameters are not uniquely identified physical geometry.
+Use `fit.note_controls(pitch, string=1)` on notes with
+`ModalString(fretting=True, pickup_position=fit.pickup_position, ...)` and the
+same source assumptions. `model_sample_rate=44100` models the renderer's digital
+filter even when envelopes were measured on resampled audio. The default uses
+each observation's rate. This estimates normalized modal shape, returns no audio,
+recorded phase or IR, and requires separate validation on other notes/strikes.
+It does not change any instrument default or establish a realistic general preset.
+
 For muted notes, optional `palm_resistance` enables a passive distributed viscous
 contact instead of scalar `mute_decay`. None retains the original source; zero
 selects contact mechanics with no additional damping. `palm_position` and
