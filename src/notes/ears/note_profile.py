@@ -26,6 +26,7 @@ class NoteProfile:
     partial_mode: str = "fixed"
     fundamental_hz: np.ndarray | None = None
     pitch_tracking_valid: np.ndarray | None = None
+    analysis_window: float | None = None
 
 
 def infer_expression_points(
@@ -166,7 +167,7 @@ def _tracked_partial_levels(freq: np.ndarray, power: np.ndarray, time: np.ndarra
 
 
 def profile_note(audio: np.ndarray, sr: int, f0: float, *, harmonics: int = 20,
-                 partial_mode: str = "fixed") -> NoteProfile:
+                 partial_mode: str = "fixed", analysis_window: float | None = None) -> NoteProfile:
     """Measure an isolated note around known f0, retaining its harmonic envelope.
 
     Mono only, at least 100 ms; silence and invalid pitches are rejected. The onset
@@ -182,6 +183,16 @@ def profile_note(audio: np.ndarray, sr: int, f0: float, *, harmonics: int = 20,
     Bands include more nearby noise than the fixed mode. Compare only profiles
     from the same mode; tracked reports use metric version 3. The default fixed
     mode retains the original numerical behaviour and metric version 2.
+
+    Optional ``analysis_window`` fixes the Hann window length in seconds
+    (0.01..0.5, at least three nominal cycles and complete post-onset coverage).
+    Longer windows resolve nearby components at the expense of temporal
+    resolution; zero padding alone does not improve that resolution. None keeps
+    the original six-cycle window exactly. Explicit-window reports use versions
+    4 (fixed bands) and 5 (tracked bands), and cannot mix with other windows.
+    f0 remains a conditional peak near the given note, not a certificate of a
+    unique perceived pitch. Cross-check broad band peaks in separate windows
+    when resonances exchange dominance or the note contains multiple modes.
     """
     x = np.asarray(audio, dtype=float)
     if x.ndim != 1 or sr < 1000 or len(x) < sr // 10 or not np.isfinite(x).all():
@@ -202,6 +213,18 @@ def profile_note(audio: np.ndarray, sr: int, f0: float, *, harmonics: int = 20,
     start = max(0, onset_sample - size // 2)
     x = x[start:]
     window = max(128, min(round(sr * 0.12), round(6 * sr / f0)))
+    if analysis_window is not None:
+        try:
+            seconds = float(analysis_window)
+        except (ValueError, TypeError) as error:
+            raise ValueError('analysis_window must be finite seconds in [0.01,0.5]') from error
+        if (isinstance(analysis_window, (bool, np.bool_)) or not np.isfinite(seconds)
+                or not .01 <= seconds <= .5 or seconds*f0 < 3):
+            raise ValueError('analysis_window needs 0.01..0.5 seconds and at least three nominal cycles')
+        window = round(sr*seconds)
+        if window > len(x):
+            raise ValueError('analysis_window exceeds the available post-onset audio')
+        analysis_window = seconds
     hop = max(1, round(sr * 0.01))
     nfft = 1 << (max(4096, window * 4) - 1).bit_length()
     freq, time, z = stft(x, fs=sr, nperseg=min(window, len(x)),
@@ -247,7 +270,7 @@ def profile_note(audio: np.ndarray, sr: int, f0: float, *, harmonics: int = 20,
     bands = np.array([10*np.log10(power[(freq >= a) & (freq < b)].sum(axis=0)+1e-20)
                       for a, b in zip(edges[:-1], edges[1:], strict=True)]).T
     return NoteProfile(start/sr, measured, time, rms_db, levels,
-                       np.array(locations), max(0, t90-t10)/sr, bands, partial_mode, ridge, valid)
+                       np.array(locations), max(0, t90-t10)/sr, bands, partial_mode, ridge, valid, analysis_window)
 
 
 def harmonic_shape_distance(
@@ -272,8 +295,8 @@ def harmonic_shape_distance(
     Useful for isolating timbre from expression or comparing renders under
     numerical refinement. A small distance alone does not prove convergence.
     """
-    if reference.partial_mode != candidate.partial_mode:
-        raise ValueError("partial profiles must use the same measurement mode")
+    if (reference.partial_mode != candidate.partial_mode or reference.analysis_window != candidate.analysis_window):
+        raise ValueError("partial profiles must use the same measurement mode and analysis window")
     shared_end = min(reference.time[-1], candidate.time[-1])
     end = min(shared_end, 2.0) if end is None else end
     if (not np.isfinite(start) or not np.isfinite(end) or not np.isfinite(step)
@@ -302,10 +325,14 @@ def harmonic_shape_distance(
     return float(error[keep].mean())
 
 
+def _profile_version(profile: NoteProfile) -> int:
+    return (3 if profile.partial_mode == 'tracked' else 2) + (2 if profile.analysis_window is not None else 0)
+
+
 def compare_profiles(reference: NoteProfile, candidate: NoteProfile) -> dict[str, float | int]:
     """Gain-invariant harmonic-envelope errors, pitch and attack; no acceptance label."""
-    if reference.partial_mode != candidate.partial_mode:
-        raise ValueError("partial profiles must use the same measurement mode")
+    if (reference.partial_mode != candidate.partial_mode or reference.analysis_window != candidate.analysis_window):
+        raise ValueError("partial profiles must use the same measurement mode and analysis window")
     end = min(reference.time[-1], candidate.time[-1], 2.0)
     times = np.arange(0.02, end, 0.02)
     count = min(reference.partial_db.shape[1], candidate.partial_db.shape[1])
@@ -340,7 +367,7 @@ def compare_profiles(reference: NoteProfile, candidate: NoteProfile) -> dict[str
     attack = keep & (times[:, None] < 0.15)
     tail = keep & (times[:, None] >= 0.15)
     return {
-        "profile_metric_version": 3 if reference.partial_mode == "tracked" else 2,
+        "profile_metric_version": _profile_version(reference),
         "spurious_partial_cells": int(np.sum(candidate_audible & ~reference_audible)),
         "missing_partial_cells": int(np.sum(reference_audible & ~candidate_audible)),
         "pitch_cents": float(1200*np.log2(candidate.f0/reference.f0)),
@@ -378,8 +405,9 @@ def audit_profile_set(
     if not references or set(references) != set(baseline) or set(references) != set(candidate):
         raise ValueError("reference, baseline and candidate must have identical nonempty case IDs")
     modes = {p.partial_mode for group in (references, baseline, candidate) for p in group.values()}
-    if len(modes) != 1:
-        raise ValueError("all audited profiles must use the same measurement mode")
+    windows = {p.analysis_window for group in (references, baseline, candidate) for p in group.values()}
+    if len(modes) != 1 or len(windows) != 1:
+        raise ValueError("all audited profiles must use the same measurement mode and analysis window")
     if not np.isfinite(regression_tolerance) or regression_tolerance < 0:
         raise ValueError("regression_tolerance must be finite and nonnegative")
     reports = {}
@@ -396,7 +424,7 @@ def audit_profile_set(
                         "candidate_loss": new_loss, "regressed": regressed}
         before.append(old_loss)
         after.append(new_loss)
-    return {"status": "diagnostic-only", "profile_metric_version": 3 if modes == {"tracked"} else 2,
+    return {"status": "diagnostic-only", "profile_metric_version": _profile_version(next(iter(references.values()))),
             "baseline_mean_loss": float(np.mean(before)), "candidate_mean_loss": float(np.mean(after)),
             "no_regression": not regressions, "regressions": regressions,
             "regression_tolerance": regression_tolerance, "cases": reports}

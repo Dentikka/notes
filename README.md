@@ -777,6 +777,23 @@ These band energies include more nearby noise than the original measurement.
 Both notes must use the same mode; tracked reports use metric version 3, while
 the default fixed mode retains its original numerical behaviour and version 2.
 
+For nearby resonances, `profile_note(..., analysis_window=.12)` or
+`notes audit-note ... --analysis-window .12` explicitly selects a longer Hann
+window instead of the original six-cycle window. It must cover at least three
+nominal cycles and fit the post-onset audio, within 0.01..0.5 seconds. This improves
+frequency resolution while smoothing spectral changes in time; RMS attack timing
+is still measured separately. Both profiles must use the same window. Explicit
+windows use metric versions 4 (fixed bands) or 5 (tracked bands); defaults are
+numerically unchanged. A peak near the prior is not a unique perceived-pitch
+certificate when several modes are present.
+
+`notes audit-note ... --peak-window .02 .15 --peak-window .4 1` also reports
+independent dominant peaks in a broader half-to-one-and-a-half-fundamental band.
+These windows start after each automatically detected onset. The report includes
+per-window frequency, contrast, relative level and support, exposing changes of
+modal dominance. It does not identify a fundamental or prove that the same mode
+was followed. Inspect these separately from the scalar profile pitch.
+
 `notes.ears.interharmonic_energy` measures a separate residual-band axis for
 sustained known-pitch notes. It includes FM leakage and inharmonic energy as
 well as noise; quiet windows and inaudible upper bands are flagged. Optional
