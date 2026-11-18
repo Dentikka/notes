@@ -235,3 +235,15 @@ def test_multiple_processes_load_registered_coupled_instrument_and_preserve_audi
     serial = render_score(score, workers=1)
     parallel = render_score(score, workers=2)
     np.testing.assert_allclose(serial.audio, parallel.audio, atol=1e-9, rtol=1e-7)
+
+
+@pytest.mark.parametrize("gate,release", [(0.1, 0.18), (0.1, 0.001), (0.0002, 0.001)])
+def test_pedal_and_undamped_flags_preserve_the_complete_prefix_before_key_release(gate, release):
+    inst = CoupledPiano(modes=8, release=release, ring_time=0.2)
+    ctx = RenderContext(8000, 60)
+    waves = [
+        inst.voice(Voice(440.0, 69.0, gate, 0.6, params), ctx, np.random.default_rng(1))
+        for params in [{}, {"pedal": True}, {"undamped": True}]
+    ]
+    for wave in waves[1:]:
+        np.testing.assert_allclose(wave[: ctx.samples(gate)], waves[0][: ctx.samples(gate)], atol=1e-11, rtol=1e-9)

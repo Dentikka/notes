@@ -100,9 +100,10 @@ class CoupledPiano(Instrument):
             frequency *= 2**(float(curve[0])/12)
         wave = struck_unisons(frequency, n, ctx.sr, velocity, pitch_compensation=tuning,
                               **{f.name: getattr(options, f.name) for f in fields(options)})
-        if not free:
-            wave *= adsr(gate, n, ctx.sr, .001, .01, 1., release)
-        count = min(n, ctx.samples(.01))
+        # The onset observation must not depend on whether the key has a damper
+        # or the pedal is down. Key release only affects samples after the gate.
+        wave *= adsr(n if free else gate, n, ctx.sr, .001, .01, 1., release)
+        count = min(n-gate, ctx.samples(.01))
         if count:
             wave[-count:] *= np.linspace(1., 0., count)
         return self.level*wave
