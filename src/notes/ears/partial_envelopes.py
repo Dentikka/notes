@@ -25,6 +25,7 @@ class PartialEnvelopes:
     fundamental_hz: np.ndarray
     window_seconds: float
     sample_rate: int
+    partial_hz: np.ndarray | None = None
 
 
 @dataclass(frozen=True)
@@ -90,7 +91,8 @@ def fit_partial_gains(reference: PartialEnvelopes, candidate: PartialEnvelopes, 
 
 def partial_envelopes(audio: np.ndarray, sr: int, fundamental_hz: float | np.ndarray, *,
                       partials: int | Sequence[float] = 20, step: float = .04,
-                      minimum_window: float = .08, cycles: float = 6.) -> PartialEnvelopes:
+                      minimum_window: float = .08, cycles: float = 6.,
+                      partial_hz: np.ndarray | None = None) -> PartialEnvelopes:
     """Fit local sine/cosine magnitudes on a known single-note trajectory.
 
     ``fundamental_hz`` is a scalar or one frequency per input sample. An integer
@@ -98,6 +100,17 @@ def partial_envelopes(audio: np.ndarray, sr: int, fundamental_hz: float | np.nda
     an explicit increasing sequence supplies modal frequency ratios and must
     fit that output band. Ratios can describe known string inharmonicity, but
     do not resolve unison strings without sufficient time/frequency separation.
+
+    Optional ``partial_hz`` supplies independent frequencies with shape
+    ``(audio samples, retained partials)``. Columns correspond to ``partials``
+    by index; those ratios are nominal labels, not a second frequency scale.
+    With these tracks, integer counts are not truncated by nominal harmonics.
+    Frequencies must be positive, strictly ordered at every sample and below
+    .45*sr. Crossing or unresolved modes are rejected, not silently relabelled.
+    Tracks are supplied by the caller, not inferred or certified here. Their
+    integrated phases only form a regression basis; no carrier phase is returned.
+    The result exposes used frequencies at frame centres as ``partial_hz``.
+    None retains the original shared-fundamental calculation and result values.
 
     Hann-weighted least squares fits all modes jointly, plus a local DC term.
     Frame times are absolute clip seconds; edge half-windows are excluded.
@@ -122,13 +135,24 @@ def partial_envelopes(audio: np.ndarray, sr: int, fundamental_hz: float | np.nda
         if not 1 <= partials <= 80:
             raise ValueError('partial count must lie from 1 to 80')
         ratios = np.arange(1, partials+1, dtype=float)
-        ratios = ratios[ratios*float(f.max()) < sr*.45]
+        if partial_hz is None:
+            ratios = ratios[ratios*float(f.max()) < sr*.45]
     else:
         ratios = np.asarray(partials, dtype=float)
         if (ratios.ndim != 1 or not 1 <= len(ratios) <= 80 or not np.isfinite(ratios).all()
-                or ratios[0] <= 0 or np.any(np.diff(ratios) <= 0) or ratios[-1]*float(f.max()) >= sr*.45):
+                or ratios[0] <= 0 or np.any(np.diff(ratios) <= 0)
+                or (partial_hz is None and ratios[-1]*float(f.max()) >= sr*.45)):
             raise ValueError('1..80 increasing positive modal ratios below .45*sr required')
-    size = max(round(sr*minimum_window), round(cycles*sr/float(f.min())))
+    trajectories = None if partial_hz is None else np.asarray(partial_hz, dtype=float)
+    if trajectories is not None and (
+            trajectories.shape != (len(x), len(ratios)) or not np.isfinite(trajectories).all()
+            or np.any(trajectories <= 0) or np.any(trajectories >= sr*.45)
+            or np.any(np.diff(trajectories, axis=1) <= 0)):
+        raise ValueError('partial_hz needs one positive ordered in-band frequency per sample and retained partial')
+    slowest = float(f.min()) if trajectories is None else min(float(f.min()), float(trajectories.min()))
+    if trajectories is not None and slowest < cycles*sr/len(x):
+        raise ValueError('partial envelopes need at least three full analysis windows')
+    size = max(round(sr*minimum_window), round(cycles*sr/slowest))
     size += 1-size % 2
     hop = max(1, round(sr*step))
     if len(x) < size+2*hop:
@@ -137,11 +161,13 @@ def partial_envelopes(audio: np.ndarray, sr: int, fundamental_hz: float | np.nda
     weights = np.hanning(size)
     track = np.broadcast_to(f, x.shape)
     phase = np.concatenate(([0.], np.cumsum(track[:-1]/sr)))*2*np.pi
+    modal_phase = (None if trajectories is None else
+                   np.vstack((np.zeros((1, len(ratios))), np.cumsum(trajectories[:-1]/sr, axis=0)))*2*np.pi)
     amplitudes, floors, residuals, conditions = [], [], [], []
     count = len(ratios)
     for center in centers:
         region = slice(center-size//2, center+size//2+1)
-        angles = phase[region, None]*ratios[None, :]
+        angles = phase[region, None]*ratios[None, :] if modal_phase is None else modal_phase[region]
         design = np.column_stack((np.ones(size), np.sin(angles), np.cos(angles)))
         gram = design.T@(weights[:, None]*design)
         eigenvalues = np.linalg.eigvalsh(gram)
@@ -163,4 +189,5 @@ def partial_envelopes(audio: np.ndarray, sr: int, fundamental_hz: float | np.nda
         conditions.append(condition)
     amplitude, floor = np.asarray(amplitudes), np.asarray(floors)
     return PartialEnvelopes(centers/sr, ratios, amplitude, floor, amplitude > 4*floor,
-                            np.asarray(residuals), np.asarray(conditions), track[centers], size/sr, sr)
+                            np.asarray(residuals), np.asarray(conditions), track[centers], size/sr, sr,
+                            None if trajectories is None else trajectories[centers].copy())

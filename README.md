@@ -384,6 +384,15 @@ Frequency errors, coloured noise, rapid amplitude changes and unresolved modes
 require independent checks. This analysis does not change the existing band-energy
 profiles or transcribe unknown notes.
 
+Optional `partial_hz` is a `(samples, partials)` matrix for modes that move
+independently: each column is integrated separately, while `partials` keeps the
+nominal mode labels. With explicit tracks, all requested partials must be supplied;
+they are not truncated by the nominal harmonic frequencies. Actual frequencies
+must remain ordered, positive and below `.45*sr`; unresolved bases fail explicitly.
+Returned `partial_hz` contains the used frame-centre frequencies, or `None` in the
+original shared-fundamental mode. Input tracks are caller-supplied assumptions,
+not certified physical modes. The default calculation is unchanged.
+
 `Violin`, `Cello`, `BowedString` and `ModalBowedString` accept optional `body_eq`:
 up to eight `(frequency_Hz, Q, gain_dB)` peaking filters, also overridden per note
 with `music.param(body_eq=...)`. The empty default preserves the existing sound;
