@@ -8,6 +8,7 @@ from notes.ears.fit import FitResult, fit_loss, fit_reference
 from notes.ears.idmt import idmt_music
 from notes.ears.inharmonicity import InharmonicPartial, StringInharmonicity, string_inharmonicity
 from notes.ears.mert import MertEar
+from notes.ears.modal_pluck_fit import ModalPluckGeometryFit, ModalPluckObservation, ModalPluckTrial, fit_modal_pluck
 from notes.ears.note_profile import PartialDecay, harmonic_shape_distance, infer_expression_points, partial_decays
 from notes.ears.partial_envelopes import PartialEnvelopes, PartialGainFit, fit_partial_gains, partial_envelopes
 from notes.ears.percussion import BandPeakTrajectory, band_peak_trajectory, compare_peak_trajectories
@@ -39,6 +40,9 @@ __all__ = [
     "InterharmonicEnergy",
     "KnownNoteTuning",
     "MertEar",
+    "ModalPluckGeometryFit",
+    "ModalPluckObservation",
+    "ModalPluckTrial",
     "PartialDecay",
     "PartialEnvelopes",
     "PartialGainFit",
@@ -52,6 +56,7 @@ __all__ = [
     "compare_peak_trajectories",
     "cosine",
     "fit_loss",
+    "fit_modal_pluck",
     "fit_partial_gains",
     "fetch_aesthetics",
     "fit_reference",
