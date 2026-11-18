@@ -14,7 +14,7 @@ from dataclasses import dataclass, replace
 import numpy as np
 
 from notes.engine.base import Instrument, RenderContext, Voice
-from notes.engine.drum_physics import impact, membrane, metal, resonate, wash
+from notes.engine.drum_physics import _membrane_upper_modes, impact, membrane, metal, resonate, wash
 from notes.engine.dsp import fade, filt, vel_gain
 from notes.engine.instruments.drums import _clap, _cowbell
 from notes.engine.registry import register_instrument
@@ -64,16 +64,21 @@ def _snare(sr: int, rng: np.random.Generator, vel: float, k: float, d: float, wi
 
 
 def _tom(sr: int, rng: np.random.Generator, vel: float, f0: float, d: float, ring: float, *,
-         glide: float = .22, glide_time: float = .08, velocity_glide: float = 1.) -> np.ndarray:
+         glide: float = .22, glide_time: float = .08, velocity_glide: float = 1.,
+         mode_count: int = 7, damping: float = 1.6) -> np.ndarray:
     """Batter head (pitch sagging over ~80 ms after a hard hit), the resonant head a hair
     higher and quieter (a slow beat; a few per cent apart they would wobble like a
     tremolo), the skin's dense upper modes as a quick burst of noise, the stick, the shell."""
     t = _time(4.0 * ring * d + 0.2, sr)
     strength = (1-velocity_glide)+velocity_glide*vel
+    extra_state = rng.bit_generator.state if mode_count > 7 else None
     batter = membrane(t, f0, ring * d, rng, strike=0.35, glide=glide * strength,
-                      glide_tau=glide_time, n_modes=7, damping=1.6)
+                      glide_tau=glide_time, n_modes=7, damping=damping)
+    if mode_count > 7:
+        batter += _membrane_upper_modes(t, f0, ring*d, extra_state, sr, n_modes=mode_count, damping=damping,
+                                        glide=glide*strength, glide_tau=glide_time)
     reso = membrane(t, 1.008 * f0, 1.1 * ring * d, rng, strike=0.1,
-                    glide=(0.05 * strength)*(glide/.22), glide_tau=glide_time, n_modes=3)
+                    glide=(0.05 * strength)*(glide/.22), glide_tau=glide_time, n_modes=3, damping=damping)
     skin = wash(t, sr, rng, low=0.9 * f0, high=7000.0, tau_low=0.06, tau_high=0.012, tilt=-1.5)
     skin /= max(float(np.max(np.abs(skin))), 1e-9)
     stick = impact(t.size, sr, rng, hardness=0.6 + 0.3 * vel, length=0.0008)
@@ -159,6 +164,13 @@ class RockKit(Instrument):
     The secondary head retains its original proportional lift. These controls
     accept per-note overrides on toms only. Defaults preserve the previous
     waveforms; fitted controls do not identify a real head/contact or a preset.
+    ``tom_modes=7..512`` adds higher ideal circular-membrane eigenfrequencies
+    above the legacy seven using a separate generated random stream. The old
+    low modes, stick and noise are not redrawn. ``tom_damping`` controls the
+    frequency-dependent loss exponent of both heads. Defaults 7/1.6 preserve the
+    old source. These controls accept tom-only per-note overrides. Additional
+    modes are limited below Nyquist at the maximum prescribed glide; amplitudes
+    and losses remain empirical, not a spatial/coupled physical head solution.
     """
 
     program: int | None = 0
@@ -173,6 +185,8 @@ class RockKit(Instrument):
     tom_glide: float = .22
     tom_glide_time: float = .08
     tom_velocity_glide: float = 1.
+    tom_modes: int = 7
+    tom_damping: float = 1.6
 
     def __post_init__(self) -> None:
         if not np.isfinite(self.tune):
@@ -180,7 +194,8 @@ class RockKit(Instrument):
         if not np.isfinite(self.decay) or self.decay <= 0:
             raise ValueError('decay must be finite and positive')
         for name, value in self._note_controls({'tom_glide': self.tom_glide, 'tom_glide_time': self.tom_glide_time,
-                                                'tom_velocity_glide': self.tom_velocity_glide}).items():
+                'tom_velocity_glide': self.tom_velocity_glide, 'tom_modes': self.tom_modes,
+                'tom_damping': self.tom_damping}).items():
             object.__setattr__(self, name, value)
         if not np.isfinite(self.kick_damping) or self.kick_damping <= 0:
             raise ValueError("kick_damping must be finite and positive")
@@ -191,10 +206,17 @@ class RockKit(Instrument):
         return 4.5 * self.decay + 0.1  # sounds ignore the gate; the crash rings longest
 
     @staticmethod
-    def _note_controls(params: Mapping[str, object]) -> dict[str, float]:
+    def _note_controls(params: Mapping[str, object]) -> dict[str, float | int]:
         controls = {}
-        for name in ('tune', 'decay', 'tom_glide', 'tom_glide_time', 'tom_velocity_glide'):
+        for name in ('tune', 'decay', 'tom_glide', 'tom_glide_time', 'tom_velocity_glide', 'tom_modes', 'tom_damping'):
             if name not in params:
+                continue
+            if name == 'tom_modes':
+                raw = params[name]
+                if (not isinstance(raw, (int, np.integer)) or isinstance(raw, (bool, np.bool_))
+                        or not 7 <= raw <= 512):
+                    raise ValueError('tom_modes must be an integer from 7 to 512')
+                controls[name] = int(raw)
                 continue
             try:
                 value = float(params[name])
@@ -202,6 +224,7 @@ class RockKit(Instrument):
                 raise ValueError(f'per-note {name} must be finite') from error
             if (not np.isfinite(value) or (name in ('decay', 'tom_glide_time') and value <= 0)
                     or (name == 'tom_glide' and value < 0)
+                    or (name == 'tom_damping' and value < 0)
                     or (name == 'tom_velocity_glide' and not 0 <= value <= 1)):
                 raise ValueError(f'per-note {name} must be finite and inside its documented range')
             controls[name] = value
@@ -235,7 +258,8 @@ class RockKit(Instrument):
         }
         for name, (f0, ring) in _TOM.items():
             sounds[name] = (lambda r, f=f0, g=ring: _tom(sr, r, vel, f * k, d, g,
-                glide=self.tom_glide, glide_time=self.tom_glide_time, velocity_glide=self.tom_velocity_glide), 0.75)
+                glide=self.tom_glide, glide_time=self.tom_glide_time, velocity_glide=self.tom_velocity_glide,
+                mode_count=self.tom_modes, damping=self.tom_damping), 0.75)
         return sounds
 
     def voice(self, v: Voice, ctx: RenderContext, rng: np.random.Generator) -> np.ndarray:
