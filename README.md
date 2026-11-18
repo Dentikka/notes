@@ -338,6 +338,37 @@ default false preserves key-off damping; an actual `pedal=True` still rings.
 There is no automatic assumption about a particular piano's last damped key.
 The renderer's existing quiet-tail trimming still applies.
 
+`CoupledPiano` is a separate experimental instrument: one nonlinear felt hammer
+drives one to three explicit string coordinates. Set
+`unison_cents=(-1.4, 0., 1.4)` or `(0.,)`; coincident offsets preserve the
+aggregate single-string limit. Unlike the existing unison readout, each string
+has its own contact state. No waveform, measured phase or impulse response is
+accepted. `examples/coupled_piano.py` supplies a short DSL demonstration.
+
+The compression-only contact uses a discrete potential gradient and midpoint
+linear mechanics. `modes=1..64` and `mechanical_band=17640` bound the uncoupled
+string basis independently of output sample rate. Observation is oversampled
+and decimated as needed; factors above 16 raise rather than alias. The fundamental
+of every string must fit below .4 of the output rate. `contact_oversample=1..16`
+refines contact integration while retaining the same physical modes.
+
+`pitch_compensation=True` tunes a generated fundamental-coordinate centroid
+weighted at .1 seconds, using a fixed requested-note region and a bracketed
+solver. It uses no recording and is not a perceptual-pitch certificate. Missing
+or nonconvergent configurations raise explicitly. `bridge_mass=None` clamps
+the endpoint; optional positive mass plus `bridge_hz`/`bridge_q` enables a moving
+endpoint. This is not calibrated soundboard radiation: a tested moving-bridge
+candidate had worse timbre and excessive attack peaks, so no such preset is adopted.
+
+Source controls, `release`, `ring_time` and `pitch_compensation` accept note
+overrides. `pedal=True` or `undamped=True` permits a finite
+`max(release, ring_time)` after the gate; note overrides also set the renderer's
+tail allocation. There is no inter-key coupling, continuous pedal, recorded
+phase transfer or support for changing pitch contours. The older Piano's
+readout/hammer-speed curves and impact-noise controls are not implemented here.
+The source requires separation within 50 ms and explicitly rejects unsupported
+contact/band configurations. It does not replace Piano or the accepted palette.
+
 Optional `impact_gain=0..1` on contact pianos adds a procedurally generated
 nonharmonic attack. A positive synthetic 1 ms pulse excites 48 designed damped
 modes below 1350 Hz (and below .42 of the sample rate). No recorded noise or

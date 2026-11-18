@@ -1,6 +1,7 @@
 """Built-in instruments; importing this package registers them."""
 
 from notes.engine.instruments.acoustic import AcousticGuitar, NylonGuitar
+from notes.engine.instruments.coupled_piano import CoupledPiano
 from notes.engine.instruments.drums import DrumKit
 from notes.engine.instruments.fm import FM, Bell, EPiano
 from notes.engine.instruments.modal_bowed import ModalBowedString
@@ -21,6 +22,7 @@ __all__ = [
     "Bell",
     "BowedString",
     "Cello",
+    "CoupledPiano",
     "Piano",
     "Violin",
     "DrumKit",

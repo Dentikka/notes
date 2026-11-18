@@ -1,6 +1,7 @@
 """Passive finite-area viscous contact for the mechanical plucked-string source."""
 from __future__ import annotations
 
+from collections.abc import Mapping
 from functools import lru_cache
 from math import ceil
 
@@ -55,7 +56,7 @@ def _state(bare: float, modes: int, stiffness: float, body_hz: float, body_q: fl
     return result
 
 
-def _sample(model: _State, initial: np.ndarray, output: np.ndarray,
+def _sample(model: Mapping[str, np.ndarray], initial: np.ndarray, output: np.ndarray,
             n: int, sr: int, cutoff: float | None, rounding: str) -> np.ndarray:
     """Sample the exact modal evolution, retaining nonoscillatory overdamped poles."""
     if np.linalg.cond(model['V']) > 1e10:
