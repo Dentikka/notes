@@ -365,7 +365,13 @@ overrides. `pedal=True` or `undamped=True` permits a finite
 `max(release, ring_time)` after the gate; note overrides also set the renderer's
 tail allocation. There is no inter-key coupling, continuous pedal, recorded
 phase transfer or support for changing pitch contours. The older Piano's
-readout/hammer-speed curves and impact-noise controls are not implemented here.
+readout curves and impact-noise controls are not implemented here.
+`hammer_speed_points=((0., 0.), (1., 4.))` optionally maps MIDI velocity to
+initial hammer speed in model m/s before nonlinear contact. Per-note
+`hammer_speed` in 0..4 overrides that curve; `hammer_speed=None` restores the
+original `.6+3.4*velocity` law and an empty curve retains existing audio exactly.
+Zero speed or zero velocity is silent. This controls contact energy and spectrum,
+not output gain; a register-specific calibration still needs independent validation.
 The source requires separation within 50 ms and explicitly rejects unsupported
 contact/band configurations. It does not replace Piano or the accepted palette.
 

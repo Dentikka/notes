@@ -188,13 +188,15 @@ class _Contact:
 
 
 def _contact(model: _Model, freq: float, velocity: float, p: _Parameters,
-             centroid_prior: float | None = None) -> _Contact:
+             centroid_prior: float | None = None, hammer_speed: float | None = None) -> _Contact:
     size, strings = len(model.M), len(p.unison_cents)
     dt, hammer_mass = 1/model.rate, .007*(220/freq)**.15*p.hammer_mass_scale
     felt = 2e9*(.45+p.brightness)*p.felt_stiffness_scale/strings
     q, v = np.zeros(size), np.zeros(size)
-    hx, hv = 0., .6+3.4*velocity
+    hx, hv = 0., .6+3.4*velocity if hammer_speed is None else hammer_speed
     initial_energy = .5*hammer_mass*hv*hv
+    if initial_energy <= np.finfo(float).tiny:
+        raise ValueError('hammer_speed produces an energy below the supported numerical range')
     compliance = dt/2*(model.B.T@model.LF)+dt*dt/(2*hammer_mass)*np.ones((strings, strings))
     head: list[float] = []
     dissipated, maximum, touched, iterations = 0., 0., False, 0
@@ -281,7 +283,8 @@ def struck_unisons(freq: float, n: int, sr: int, velocity: float, *,
                    hammer_mass_scale: float = 1., felt_stiffness_scale: float = 1.,
                    contact_oversample: int = 1, radiation: bool = True, radiation_loss_scale: float = 1.,
                    bridge_mass: float | None = None, bridge_hz: float = 1500., bridge_q: float = 30.,
-                   pitch_compensation: bool = False, _audit: dict[str, object] | None = None) -> np.ndarray:
+                   pitch_compensation: bool = False, hammer_speed: float | None = None,
+                   _audit: dict[str, object] | None = None) -> np.ndarray:
     """Separate strings struck by one compression-only hammer, optionally on a moving bridge.
 
     Offsets describe one to three strings, including coincident ones. Total modal
@@ -299,9 +302,14 @@ def struck_unisons(freq: float, n: int, sr: int, velocity: float, *,
     It then observes the requested sample clock once. No reference waveform,
     measured phase, IR or fitted output envelope is accepted. None of these controls
     establishes a realistic general piano preset. Output gate/release is external.
+    Optional hammer_speed sets initial hammer speed in model m/s, from 0 to 4,
+    before nonlinear contact. None retains .6+3.4*velocity exactly. This changes
+    contact spectrum and energy, not just output gain; zero velocity stays silent.
     """
     sr, n = _integer(sr, 'sample rate', 4000, 192000), _integer(n, 'sample count', 0, 100_000_000)
     freq, velocity = _number(freq, 'frequency', 20, .4*sr), _number(velocity, 'velocity', 0, 1)
+    if hammer_speed is not None:
+        hammer_speed = _number(hammer_speed, 'hammer_speed', 0, 4)
     if not isinstance(pitch_compensation, (bool, np.bool_)):
         raise ValueError('pitch_compensation must be boolean')
     p = _Parameters(unison_cents=unison_cents, modes=modes, mechanical_band=mechanical_band,
@@ -314,7 +322,7 @@ def struck_unisons(freq: float, n: int, sr: int, velocity: float, *,
         raise ValueError('fundamentals must fit the physical and observation band')
     if p.bridge_mass is not None and p.bridge_hz >= p.mechanical_band:
         raise ValueError('bridge frequency must fit the mechanical band')
-    if n == 0 or velocity == 0:
+    if n == 0 or velocity == 0 or hammer_speed == 0:
         if _audit is not None:
             _audit.update(silent=True)
         return np.zeros(n)
@@ -325,7 +333,7 @@ def struck_unisons(freq: float, n: int, sr: int, velocity: float, *,
         if bare in evaluated:
             return evaluated[bare][2]
         model = _model(float(bare), sr, p)
-        contact = _contact(model, float(bare), velocity, p, freq)
+        contact = _contact(model, float(bare), velocity, p, freq, hammer_speed)
         actual = contact.centroid
         error = float(1200*np.log2(actual/freq)) if actual is not None else None
         tuning.append({'bare_frequency': bare, 'generated_centroid': actual, 'error_cents': error})

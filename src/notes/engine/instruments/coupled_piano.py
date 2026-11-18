@@ -9,6 +9,7 @@ import numpy as np
 from notes.engine.articulation import pitch_curve
 from notes.engine.base import Instrument, RenderContext, Voice
 from notes.engine.dsp import adsr
+from notes.engine.instruments.orchestral import _hammer_speed_points
 from notes.engine.piano_unison import _number, _Parameters, struck_unisons
 from notes.engine.registry import register_instrument
 
@@ -29,6 +30,11 @@ class CoupledPiano(Instrument):
     identical offsets retain the aggregate one-string limit. Parameters shared
     with the source may be overridden on notes. There are no measured phase,
     carrier, impulse-response or readout-envelope inputs.
+
+    Optional hammer_speed_points maps velocity 0..1 to initial hammer speed
+    0..4 model m/s before contact. Per-note hammer_speed overrides the curve;
+    None explicitly restores the original velocity law. These controls alter
+    excitation, not output gain, and do not establish a calibrated piano preset.
 
     `pitch_compensation` tunes the generated modal centroid, not a recording.
     A nonoscillatory or nonconvergent configuration raises instead of silently
@@ -54,6 +60,7 @@ class CoupledPiano(Instrument):
     bridge_hz: float = 1500.
     bridge_q: float = 30.
     pitch_compensation: bool = True
+    hammer_speed_points: tuple[tuple[float, float], ...] = ()
     release: float = .18
     ring_time: float = 8.
     level: float = .45
@@ -63,6 +70,7 @@ class CoupledPiano(Instrument):
         for field in fields(p):
             object.__setattr__(self, field.name, getattr(p, field.name))
         object.__setattr__(self, 'pitch_compensation', _boolean(self.pitch_compensation, 'pitch_compensation'))
+        object.__setattr__(self, 'hammer_speed_points', _hammer_speed_points(self.hammer_speed_points))
         for name in ['release', 'ring_time']:
             object.__setattr__(self, name, _number(getattr(self, name), name, 0, 120, positive=True))
         object.__setattr__(self, 'level', _number(self.level, 'level', 0, 16))
@@ -84,10 +92,16 @@ class CoupledPiano(Instrument):
         free = _boolean(v.params.get('pedal', False), 'pedal') | _boolean(v.params.get('undamped', False), 'undamped')
         tuning = _boolean(v.params.get('pitch_compensation', self.pitch_compensation), 'pitch_compensation')
         velocity = _number(v.vel, 'velocity', 0, 1)
+        speeds = _hammer_speed_points(v.params.get('hammer_speed_points', self.hammer_speed_points))
+        speed = None
+        if 'hammer_speed' in v.params:
+            if v.params['hammer_speed'] is not None:
+                speed = _number(v.params['hammer_speed'], 'hammer_speed', 0, 4)
+        elif speeds:
+            speed = float(np.interp(velocity, *np.asarray(speeds).T))
         gate = ctx.samples(_number(v.dur, 'gate', 0))
         n = gate+ctx.samples(max(release, ring) if free else release)
-        for name in ['partial_gain_points', 'unison_strings', 'hammer_speed',
-                     'hammer_speed_points', 'radiation_compensation']:
+        for name in ['partial_gain_points', 'unison_strings', 'radiation_compensation']:
             if name in v.params:
                 raise ValueError(f'{name} is not implemented for CoupledPiano')
         if gate == 0 or velocity == 0 or self.level == 0:
@@ -99,6 +113,7 @@ class CoupledPiano(Instrument):
                 raise ValueError('CoupledPiano supports steady pitches only')
             frequency *= 2**(float(curve[0])/12)
         wave = struck_unisons(frequency, n, ctx.sr, velocity, pitch_compensation=tuning,
+                              hammer_speed=speed,
                               **{f.name: getattr(options, f.name) for f in fields(options)})
         # The onset observation must not depend on whether the key has a damper
         # or the pedal is down. Key release only affects samples after the gate.
