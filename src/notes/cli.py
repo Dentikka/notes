@@ -242,13 +242,35 @@ def _audit_note(args: argparse.Namespace) -> int:
         raise ValueError("the report must not overwrite an audio input")
     expected = midi_to_hz(parse_pitch(args.pitch), args.a4)
     rate = 22050
-    profiles = [profile_note(load(path, sr=rate).mean(axis=0), rate, expected,
-                             harmonics=args.harmonics, partial_mode=args.partial_mode) for path in (reference, render)]
+    audios = [load(path, sr=rate).mean(axis=0) for path in (reference, render)]
+    profiles = [profile_note(audio, rate, expected, harmonics=args.harmonics,
+                             partial_mode=args.partial_mode, analysis_window=args.analysis_window) for audio in audios]
     report = {"status": "diagnostic-only", "scope": "isolated known-pitch notes",
               "reference": str(reference), "render": str(render), "expected_f0": expected,
               "reference_f0": profiles[0].f0, "render_f0": profiles[1].f0,
               "partial_mode": args.partial_mode,
               "git_revision": _git_revision(), **compare_profiles(*profiles)}
+    if args.analysis_window is not None:
+        report['analysis_window'] = profiles[0].analysis_window
+        report['frequency_supported'] = {name: profile.frequency_supported
+                                         for name, profile in zip(('reference', 'render'), profiles, strict=True)}
+        if not profiles[0].frequency_supported:
+            report['reference_f0'] = None
+        if not profiles[1].frequency_supported:
+            report['render_f0'] = None
+    if args.peak_window:
+        from notes.ears.percussion import band_peak_trajectory
+
+        peaks = {'scope': 'broad dominant peaks, not fundamental or same-mode identification',
+                 'clock': 'seconds after each automatically detected onset'}
+        for name, audio, profile in zip(('reference', 'render'), audios, profiles, strict=True):
+            measured = band_peak_trajectory(audio[round(profile.onset*rate):], rate,
+                band=(expected*.5, expected*1.5), windows=tuple(tuple(x) for x in args.peak_window))
+            peaks[name] = {'windows': measured.windows.tolist(), 'frequency_hz': measured.frequency_hz.tolist(),
+                           'contrast_db': measured.contrast_db.tolist(),
+                           'relative_rms_db': measured.relative_rms_db.tolist(),
+                           'supported': measured.supported.tolist(), 'band_hz': list(measured.band_hz)}
+        report['broad_peaks'] = peaks
     if args.decay_window:
         report["decay_windows"] = [
             {"start": start, "end": end, "scope": "local exponential estimates, not whole-note lifetimes",
@@ -509,6 +531,10 @@ def main(argv: list[str] | None = None) -> int:
     audit.add_argument("--harmonics", type=int, default=20)
     audit.add_argument("--partial-mode", choices=("fixed", "tracked"), default="fixed",
                        help="tracked uses moving, wider partial bands; same mode for both notes")
+    audit.add_argument('--analysis-window', type=float, metavar='SECONDS',
+                       help='optional 0.01..0.5s spectral window; None retains the original six-cycle analysis')
+    audit.add_argument('--peak-window', type=float, nargs=2, action='append', metavar=('START', 'END'),
+                       help='onset-relative broad peak window; repeat to inspect changes of modal dominance')
     audit.add_argument("--decay-window", type=float, nargs=2, action="append", metavar=("START", "END"),
                        help="optional onset-relative decay window in seconds; repeat to compare attack and sustain")
     audit.add_argument("--texture-window", type=float, nargs=2, metavar=("START", "END"),

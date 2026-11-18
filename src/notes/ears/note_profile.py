@@ -26,6 +26,8 @@ class NoteProfile:
     partial_mode: str = "fixed"
     fundamental_hz: np.ndarray | None = None
     pitch_tracking_valid: np.ndarray | None = None
+    analysis_window: float | None = None
+    frequency_supported: bool | None = None
 
 
 def infer_expression_points(
@@ -123,16 +125,9 @@ def partial_decays(
     return tuple(result)
 
 
-def _tracked_partial_levels(freq: np.ndarray, power: np.ndarray, time: np.ndarray,
-                            prior: float, measured: float, locations: np.ndarray,
-                            step: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Follow a supported fundamental ridge; integrate disjoint moving bands.
-
-    A band includes the main STFT lobe and FM broadening, up to 45% of the
-    adjacent partial spacing. Fractional bin overlap avoids changing bandwidth
-    when the centre crosses a bin boundary. These are band energies, including
-    nearby noise, not phase-coherent sinusoid amplitudes.
-    """
+def _fundamental_ridge(freq: np.ndarray, power: np.ndarray, time: np.ndarray,
+                       prior: float, measured: float, step: float, *,
+                       prior_cents: float | None = None) -> tuple[np.ndarray, np.ndarray]:
     region = np.flatnonzero(abs(freq-prior) < prior*.055)
     indices = region[np.argmax(power[region], axis=0)]
     indices = np.clip(indices, 1, len(freq)-2)
@@ -147,8 +142,25 @@ def _tracked_partial_levels(freq: np.ndarray, power: np.ndarray, time: np.ndarra
     valid = ((peaks > peaks.max()*1e-5) & (peaks > background*10)
              & (peaks > power.max(axis=0)*10**(-35/10))
              & (b >= a) & (b >= c) & (abs(ridge-prior) < prior*.055))
+    if prior_cents is not None:
+        valid &= abs(1200*np.log2(np.maximum(ridge, 1e-30)/prior)) <= prior_cents
     ridge = (np.interp(time, time[valid], ridge[valid]) if valid.sum() >= 2
              else np.full(len(time), measured))
+    return ridge, valid
+
+
+def _tracked_partial_levels(freq: np.ndarray, power: np.ndarray, time: np.ndarray,
+                            prior: float, measured: float, locations: np.ndarray,
+                            step: float, *,
+                            observed_ridge: tuple[np.ndarray, np.ndarray] | None = None
+                            ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Integrate disjoint moving bands; these include nearby noise and leakage.
+
+    Fractional bin overlap retains continuous bandwidth. Without an override,
+    use the original local ridge and its original support checks exactly.
+    """
+    ridge, valid = (_fundamental_ridge(freq, power, time, prior, measured, step)
+                    if observed_ridge is None else observed_ridge)
     centers = locations[:, None]+np.arange(1, len(locations)+1)[:, None]*(ridge-measured)
     half = np.full_like(centers, max(2*step, measured*.45))
     if len(centers) > 1:
@@ -166,7 +178,7 @@ def _tracked_partial_levels(freq: np.ndarray, power: np.ndarray, time: np.ndarra
 
 
 def profile_note(audio: np.ndarray, sr: int, f0: float, *, harmonics: int = 20,
-                 partial_mode: str = "fixed") -> NoteProfile:
+                 partial_mode: str = "fixed", analysis_window: float | None = None) -> NoteProfile:
     """Measure an isolated note around known f0, retaining its harmonic envelope.
 
     Mono only, at least 100 ms; silence and invalid pitches are rejected. The onset
@@ -182,6 +194,19 @@ def profile_note(audio: np.ndarray, sr: int, f0: float, *, harmonics: int = 20,
     Bands include more nearby noise than the fixed mode. Compare only profiles
     from the same mode; tracked reports use metric version 3. The default fixed
     mode retains the original numerical behaviour and metric version 2.
+
+    Optional ``analysis_window`` fixes the Hann window length in seconds
+    (0.01..0.5, at least three nominal cycles and complete post-onset coverage).
+    Longer windows resolve nearby components at the expense of temporal
+    resolution; zero padding alone does not improve that resolution. None keeps
+    the original six-cycle window exactly. Explicit-window reports use versions
+    4 (fixed bands) and 5 (tracked bands), and cannot mix with other windows.
+    In explicit-window mode the frequency anchor is the median of supported
+    local peaks within 50 cents, with full-window centres in the early region.
+    ``frequency_supported`` requires at least two such centres. Otherwise f0
+    remains the supplied band anchor and comparison pitch is None, not a
+    measured zero error. This is still not a unique perceived-pitch certificate.
+    Cross-check broad peaks when resonances exchange dominance.
     """
     x = np.asarray(audio, dtype=float)
     if x.ndim != 1 or sr < 1000 or len(x) < sr // 10 or not np.isfinite(x).all():
@@ -202,6 +227,18 @@ def profile_note(audio: np.ndarray, sr: int, f0: float, *, harmonics: int = 20,
     start = max(0, onset_sample - size // 2)
     x = x[start:]
     window = max(128, min(round(sr * 0.12), round(6 * sr / f0)))
+    if analysis_window is not None:
+        try:
+            seconds = float(analysis_window)
+        except (ValueError, TypeError) as error:
+            raise ValueError('analysis_window must be finite seconds in [0.01,0.5]') from error
+        if (isinstance(analysis_window, (bool, np.bool_)) or not np.isfinite(seconds)
+                or not .01 <= seconds <= .5 or seconds*f0 < 3):
+            raise ValueError('analysis_window needs 0.01..0.5 seconds and at least three nominal cycles')
+        window = round(sr*seconds)
+        if window > len(x):
+            raise ValueError('analysis_window exceeds the available post-onset audio')
+        analysis_window = seconds
     hop = max(1, round(sr * 0.01))
     nfft = 1 << (max(4096, window * 4) - 1).bit_length()
     freq, time, z = stft(x, fs=sr, nperseg=min(window, len(x)),
@@ -220,6 +257,20 @@ def profile_note(audio: np.ndarray, sr: int, f0: float, *, harmonics: int = 20,
         if den < 0:
             offset = float(np.clip(0.5*(a-c)/den, -0.5, 0.5))
     measured = float((k+offset)*sr/nfft)
+    ridge = valid = None
+    observed: tuple[np.ndarray, np.ndarray] | None = None
+    frequency_supported = None
+    if analysis_window is not None:
+        ridge, valid = _fundamental_ridge(freq, power, time, f0, f0, sr/nfft, prior_cents=50.)
+        observed = (ridge, valid)
+        anchors = (valid & (time >= max(.03, window/(2*sr)))
+                   & (time <= min(.4, len(x)/sr-window/(2*sr))))
+        frequency_supported = bool(anchors.sum() >= 2)
+        measured = float(np.median(ridge[anchors])) if frequency_supported else float(f0)
+        if frequency_supported:
+            # Locate partials using frames supporting the intended note, rather
+            # than letting a much louder off-note attack set every band centre.
+            reference = power[:, anchors].mean(axis=1)
     partials, locations = [], []
     for h in range(1, harmonics+1):
         expected = h * measured
@@ -227,14 +278,15 @@ def profile_note(audio: np.ndarray, sr: int, f0: float, *, harmonics: int = 20,
             break
         region = np.flatnonzero(abs(freq-expected) < measured * 0.3)
         at = int(region[np.argmax(reference[region])])
-        locations.append(float(freq[at]))
-        band = abs(freq-freq[at]) < max(sr/nfft*2, measured*0.07)
+        location = measured if analysis_window is not None and h == 1 else float(freq[at])
+        locations.append(location)
+        band = abs(freq-location) < max(sr/nfft*2, measured*0.07)
         partials.append(10*np.log10(power[band].sum(axis=0)+1e-20))
     levels = np.array(partials).T
-    ridge = valid = None
     if partial_mode == "tracked":
         levels, ridge, valid = _tracked_partial_levels(freq, power, time, f0, measured,
-                                                       np.asarray(locations), sr/nfft)
+                                                       np.asarray(locations), sr/nfft,
+                                                       observed_ridge=observed)
     # RMS is measured separately from STFT harmonic energy, so noise is not ignored.
     envelope = np.sqrt(np.maximum(0, uniform_filter1d(x*x, size=max(1, round(sr*0.01)), mode="constant")))
     indices = np.minimum((time*sr).astype(int), len(envelope)-1)
@@ -247,7 +299,8 @@ def profile_note(audio: np.ndarray, sr: int, f0: float, *, harmonics: int = 20,
     bands = np.array([10*np.log10(power[(freq >= a) & (freq < b)].sum(axis=0)+1e-20)
                       for a, b in zip(edges[:-1], edges[1:], strict=True)]).T
     return NoteProfile(start/sr, measured, time, rms_db, levels,
-                       np.array(locations), max(0, t90-t10)/sr, bands, partial_mode, ridge, valid)
+                       np.array(locations), max(0, t90-t10)/sr, bands, partial_mode, ridge, valid,
+                       analysis_window, frequency_supported)
 
 
 def harmonic_shape_distance(
@@ -272,8 +325,8 @@ def harmonic_shape_distance(
     Useful for isolating timbre from expression or comparing renders under
     numerical refinement. A small distance alone does not prove convergence.
     """
-    if reference.partial_mode != candidate.partial_mode:
-        raise ValueError("partial profiles must use the same measurement mode")
+    if (reference.partial_mode != candidate.partial_mode or reference.analysis_window != candidate.analysis_window):
+        raise ValueError("partial profiles must use the same measurement mode and analysis window")
     shared_end = min(reference.time[-1], candidate.time[-1])
     end = min(shared_end, 2.0) if end is None else end
     if (not np.isfinite(start) or not np.isfinite(end) or not np.isfinite(step)
@@ -302,10 +355,14 @@ def harmonic_shape_distance(
     return float(error[keep].mean())
 
 
-def compare_profiles(reference: NoteProfile, candidate: NoteProfile) -> dict[str, float | int]:
+def _profile_version(profile: NoteProfile) -> int:
+    return (3 if profile.partial_mode == 'tracked' else 2) + (2 if profile.analysis_window is not None else 0)
+
+
+def compare_profiles(reference: NoteProfile, candidate: NoteProfile) -> dict[str, float | int | None]:
     """Gain-invariant harmonic-envelope errors, pitch and attack; no acceptance label."""
-    if reference.partial_mode != candidate.partial_mode:
-        raise ValueError("partial profiles must use the same measurement mode")
+    if (reference.partial_mode != candidate.partial_mode or reference.analysis_window != candidate.analysis_window):
+        raise ValueError("partial profiles must use the same measurement mode and analysis window")
     end = min(reference.time[-1], candidate.time[-1], 2.0)
     times = np.arange(0.02, end, 0.02)
     count = min(reference.partial_db.shape[1], candidate.partial_db.shape[1])
@@ -339,8 +396,8 @@ def compare_profiles(reference: NoteProfile, candidate: NoteProfile) -> dict[str
     envelope_error -= np.median(envelope_error)
     attack = keep & (times[:, None] < 0.15)
     tail = keep & (times[:, None] >= 0.15)
-    return {
-        "profile_metric_version": 3 if reference.partial_mode == "tracked" else 2,
+    report: dict[str, float | int | None] = {
+        "profile_metric_version": _profile_version(reference),
         "spurious_partial_cells": int(np.sum(candidate_audible & ~reference_audible)),
         "missing_partial_cells": int(np.sum(reference_audible & ~candidate_audible)),
         "pitch_cents": float(1200*np.log2(candidate.f0/reference.f0)),
@@ -354,12 +411,21 @@ def compare_profiles(reference: NoteProfile, candidate: NoteProfile) -> dict[str
         "partial_count": count,
         "seconds": float(end),
     }
+    if reference.analysis_window is not None:
+        supported = bool(reference.frequency_supported and candidate.frequency_supported)
+        report['pitch_supported'] = supported
+        if not supported:
+            report['pitch_cents'] = None
+    return report
 
 
-def note_profile_loss(report: Mapping[str, float | int]) -> float:
+def note_profile_loss(report: Mapping[str, float | int | None]) -> float:
     """Diagnostic calibration objective; not a perceptual-realism score."""
-    return float(report["harmonic_mae_db"] + 0.45*report["envelope_mae_db"]
-                 + 0.35*report["broadband_mae_db"])
+    harmonic, envelope, broadband = (report[key] for key in
+                                      ['harmonic_mae_db', 'envelope_mae_db', 'broadband_mae_db'])
+    if harmonic is None or envelope is None or broadband is None:
+        raise ValueError('profile loss needs numeric spectral and envelope errors')
+    return float(harmonic + .45*envelope + .35*broadband)
 
 
 def audit_profile_set(
@@ -374,21 +440,27 @@ def audit_profile_set(
     All three mappings must cover exactly the same nonempty case set. A tolerance
     of .02 allows at most a 2% per-case increase. Passing this diagnostic guard
     does not establish realism; pitch/attack and individual metrics remain visible.
+    Explicit-window cases without supported frequencies cannot pass this guard;
+    they are listed separately from measured profile regressions.
     """
     if not references or set(references) != set(baseline) or set(references) != set(candidate):
         raise ValueError("reference, baseline and candidate must have identical nonempty case IDs")
     modes = {p.partial_mode for group in (references, baseline, candidate) for p in group.values()}
-    if len(modes) != 1:
-        raise ValueError("all audited profiles must use the same measurement mode")
+    windows = {p.analysis_window for group in (references, baseline, candidate) for p in group.values()}
+    if len(modes) != 1 or len(windows) != 1:
+        raise ValueError("all audited profiles must use the same measurement mode and analysis window")
     if not np.isfinite(regression_tolerance) or regression_tolerance < 0:
         raise ValueError("regression_tolerance must be finite and nonnegative")
     reports = {}
     regressions = []
+    frequency_unverified = []
     before, after = [], []
     for key in sorted(references):
         old = compare_profiles(references[key], baseline[key])
         new = compare_profiles(references[key], candidate[key])
         old_loss, new_loss = note_profile_loss(old), note_profile_loss(new)
+        if old.get('pitch_supported') is False or new.get('pitch_supported') is False:
+            frequency_unverified.append(key)
         regressed = new_loss > old_loss*(1+regression_tolerance)+1e-6
         if regressed:
             regressions.append(key)
@@ -396,7 +468,10 @@ def audit_profile_set(
                         "candidate_loss": new_loss, "regressed": regressed}
         before.append(old_loss)
         after.append(new_loss)
-    return {"status": "diagnostic-only", "profile_metric_version": 3 if modes == {"tracked"} else 2,
+    result = {"status": "diagnostic-only", "profile_metric_version": _profile_version(next(iter(references.values()))),
             "baseline_mean_loss": float(np.mean(before)), "candidate_mean_loss": float(np.mean(after)),
-            "no_regression": not regressions, "regressions": regressions,
+            "no_regression": not regressions and not frequency_unverified, "regressions": regressions,
             "regression_tolerance": regression_tolerance, "cases": reports}
+    if next(iter(references.values())).analysis_window is not None:
+        result['frequency_unverified_cases'] = frequency_unverified
+    return result
