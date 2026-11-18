@@ -57,11 +57,12 @@ def test_moving_endpoint_matrices_match_independent_spatial_energy_and_contact_g
 
 
 @pytest.mark.parametrize("body", [None, 0.02])
-def test_contact_matches_independent_continuous_physical_coordinate_ode(body):
+@pytest.mark.parametrize("speed", [.3, 2.64])
+def test_contact_matches_independent_continuous_physical_coordinate_ode(body, speed):
     f = 440.0
     p = _Parameters(unison_cents=(-1.4, 1.4), modes=8, contact_oversample=4, bridge_mass=body)
     m = _model(f, 16000, p)
-    contact = _contact(m, f, 0.6, p)
+    contact = _contact(m, f, 0.6, p, hammer_speed=speed)
     size = len(m.M)
     hammer_mass = 0.007 * (220 / f) ** 0.15
     felt = 2e9 * (0.45 + 0.65) / 2
@@ -74,7 +75,7 @@ def test_contact_matches_independent_continuous_physical_coordinate_ode(body):
         force = felt * np.maximum(hx - m.B.T @ q, 0) ** 2.3
         return np.r_[v, -minvK @ q - minvC @ v + minvB @ force, hv, -force.sum() / hammer_mass]
 
-    initial = np.r_[np.zeros(2 * size), 0.0, 0.6 + 3.4 * 0.6]
+    initial = np.r_[np.zeros(2 * size), 0.0, speed]
     ref = solve_ivp(rhs, (0, contact.seconds), initial, method="DOP853", rtol=1e-10, atol=1e-13).y[:, -1]
     delta = contact.initial - ref[: 2 * size]
     relative = np.sqrt((delta[:size] @ m.K @ delta[:size] + delta[size:] @ m.M @ delta[size:]) / contact.initial_energy)
@@ -82,7 +83,8 @@ def test_contact_matches_independent_continuous_physical_coordinate_ode(body):
     assert contact.balance_error < 1e-8 and contact.iterations > 0
     assert abs(contact.initial_energy - contact.remaining_energy - contact.dissipated) < 1e-10
     audit = {}
-    wave = struck_unisons(f, 2400, 16000, 0.6, _audit=audit, **{g.name: getattr(p, g.name) for g in fields(p)})
+    wave = struck_unisons(f, 2400, 16000, 0.6, _audit=audit, hammer_speed=speed,
+                          **{g.name: getattr(p, g.name) for g in fields(p)})
     for sample in [400, 1200, 2200]:
         expected = m.readout @ (expm(m.A * (sample / 16000 - contact.seconds)) @ ref[: 2 * size])[size:] * 0.11
         assert wave[sample] == pytest.approx(expected, abs=5e-5)
@@ -247,3 +249,70 @@ def test_pedal_and_undamped_flags_preserve_the_complete_prefix_before_key_releas
     ]
     for wave in waves[1:]:
         np.testing.assert_allclose(wave[: ctx.samples(gate)], waves[0][: ctx.samples(gate)], atol=1e-11, rtol=1e-9)
+
+
+def test_explicit_hammer_speed_preserves_old_law_and_controls_initial_energy_and_spectrum():
+    opts = dict(freq=1760., n=6000, sr=16000, velocity=.6, modes=8)
+    old = struck_unisons(**opts)
+    np.testing.assert_array_equal(old, struck_unisons(**opts, hammer_speed=None))
+    np.testing.assert_array_equal(old, struck_unisons(**opts, hammer_speed=.6+3.4*.6))
+    low, high = {}, {}
+    a = struck_unisons(**opts, hammer_speed=.3, _audit=low)
+    b = struck_unisons(**opts, hammer_speed=3., _audit=high)
+    assert high['initial_energy']/low['initial_energy'] == pytest.approx(100.)
+    # A speed input changes nonlinear excitation: a scalar output gain cannot
+    # account for the resulting normalized spectrum.
+    sa, sb = abs(np.fft.rfft(a)), abs(np.fft.rfft(b))
+    assert np.linalg.norm(sa/np.linalg.norm(sa)-sb/np.linalg.norm(sb)) > .02
+    np.testing.assert_array_equal(a, struck_unisons(**{**opts, 'velocity': .1}, hammer_speed=.3))
+    assert not np.any(struck_unisons(**opts, hammer_speed=0.))
+    assert not np.any(struck_unisons(**{**opts, 'velocity': 0.}, hammer_speed=3.))
+
+
+@pytest.mark.parametrize('speed', [-1., 4.1, np.nan, np.inf, True, 'bad'])
+def test_invalid_hammer_speed_is_rejected_before_empty_or_silent_render(speed):
+    with pytest.raises(ValueError, match='hammer_speed'):
+        struck_unisons(440., 0, 16000, 0., hammer_speed=speed)
+    with pytest.raises(ValueError, match='hammer_speed'):
+        CoupledPiano().voice(Voice(440., 69., 0., 0., {'hammer_speed': speed}),
+                             RenderContext(8000, 60), np.random.default_rng(0))
+
+
+def test_subnormal_hammer_energy_raises_explicitly_without_dividing_by_zero():
+    with pytest.raises(ValueError, match='hammer_speed'):
+        struck_unisons(440., 400, 16000, .6, hammer_speed=1e-300)
+
+
+def test_speed_curve_note_priority_json_and_physical_energy_after_tuning():
+    curve = ((0., 0.), (1., 4.))
+    inst = CoupledPiano(modes=8, ring_time=.1, release=.03, hammer_speed_points=curve)
+    plain = CoupledPiano(modes=8, ring_time=.1, release=.03)
+    ctx = RenderContext(8000, 60)
+
+    def voice(instrument, params):
+        return instrument.voice(Voice(440., 69., .05, .5, params), ctx, np.random.default_rng(0))
+
+    np.testing.assert_array_equal(voice(inst, {}), voice(plain, {'hammer_speed': 2.}))
+    np.testing.assert_array_equal(voice(inst, {'hammer_speed': None}), voice(plain, {}))
+    np.testing.assert_array_equal(voice(inst, {'hammer_speed_points': []}), voice(plain, {}))
+    np.testing.assert_array_equal(voice(inst, {'hammer_speed': .3}), voice(plain, {'hammer_speed': .3}))
+    assert build_instrument(inst.to_spec()) == inst
+    score = Song(Track('p', inst)(Note('A4', .05, .5).param(hammer_speed=.3)),
+                 sample_rate=8000, bpm=60, loudness=None).compile()
+    restored = Score.from_json(score.to_json())
+    np.testing.assert_array_equal(render_score(score).audio, render_score(restored).audio)
+    audit = {}
+    struck_unisons(1760., 800, 16000, .6, pitch_compensation=True, hammer_speed=.3, _audit=audit)
+    bare = audit['tuning'][-1]['bare_frequency']
+    expected = .5*.007*(220/bare)**.15*.3**2
+    assert audit['initial_energy'] == pytest.approx(expected)
+    assert audit['max_relative_balance_error'] < 1e-8
+
+
+@pytest.mark.parametrize('curve', [None, [(0., 0.)], [(0., 0.), (1., 5.)], [(0., 2.), (1., 1.)]])
+def test_speed_curves_rejected_on_instrument_and_note(curve):
+    with pytest.raises(ValueError, match='hammer_speed_points'):
+        CoupledPiano(hammer_speed_points=curve)
+    with pytest.raises(ValueError, match='hammer_speed_points'):
+        CoupledPiano().voice(Voice(440., 69., .05, .5, {'hammer_speed_points': curve}),
+                             RenderContext(8000, 60), np.random.default_rng(0))
