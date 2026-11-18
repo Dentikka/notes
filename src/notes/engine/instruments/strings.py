@@ -180,6 +180,12 @@ class ElectricGuitar(Instrument):
     controls before fret geometry and mute/legato/velocity modifiers.
     Per-note ``stiffness`` overrides the dispersion B directly for the vibrating
     length; it is not additionally scaled by the fret geometry.
+    ``stiffness_reference="open"`` instead interprets the constructor's B at
+    the open-string length and divides it by the squared fret length ratio.
+    It requires fretting=True; per-note B still overrides it absolutely.
+    The default "vibrating" retains the original fixed B. This is a fixed-tension
+    geometric approximation, not a model of changing tension during bends.
+    Use the existing bracketed dispersion fit to avoid the legacy search fallback.
     ``dispersion_fit="bracketed"`` avoids silently disabling stiffness when a
     trial resonance lies outside the old narrow search. Default "legacy" retains
     the original waveform; both use the same two-allpass dispersion model.
@@ -210,6 +216,7 @@ class ElectricGuitar(Instrument):
     brightness: float = 0.7
     pick_position: float = 0.15
     stiffness: float = 4e-5
+    stiffness_reference: str = "vibrating"
     dispersion_fit: str = "legacy"
     polarization: float = 0.3
     prompt_decay: float = 0.0
@@ -226,6 +233,18 @@ class ElectricGuitar(Instrument):
     level: float = 0.5
 
     def __post_init__(self) -> None:
+        if self.stiffness_reference not in ("vibrating", "open"):
+            raise ValueError('stiffness_reference must be vibrating or open')
+        if self.stiffness_reference == "open":
+            if not self.fretting:
+                raise ValueError('open stiffness_reference requires fretting=True')
+            try:
+                value = float(self.stiffness)
+            except (TypeError, ValueError) as error:
+                raise ValueError('open-string stiffness must be finite and nonnegative') from error
+            if not np.isfinite(value) or value < 0:
+                raise ValueError('open-string stiffness must be finite and nonnegative')
+            object.__setattr__(self, 'stiffness', value)
         if self.dispersion_fit not in ("legacy", "bracketed"):
             raise ValueError("dispersion_fit must be legacy or bracketed")
         if self.pickup not in _PICKUP_POSITION:
@@ -293,6 +312,8 @@ class ElectricGuitar(Instrument):
             t60_high *= self.wound_treble
             hardness *= self.wound_brightness
         scale = fret_scale(v.pitch, string) if self.fretting else 1.0
+        if self.stiffness_reference == "open" and "stiffness" not in v.params:
+            stiffness /= scale**2
         position = _along(_PICKUP_POSITION[self.pickup], scale)
         spatial = self.pickup_position is not None or self.pickup_width > 0 or self.coil_spacing > 0
         if spatial:
