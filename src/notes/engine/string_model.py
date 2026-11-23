@@ -122,11 +122,29 @@ def _loop(f0: float, sr: int, t60: float, t60_high: float, stiffness: float,
     return length, loop_b, loop_a
 
 
+def _spectral_shape(length: int, pick: float, excitation: str) -> np.ndarray:
+    """Finite Fourier series of a continuous triangular displacement or its derivative."""
+    if length < 3:
+        raise ValueError("spectral pluck requires at least three delay samples")
+    position = float(np.clip(pick, 1/length, 1-1/length))
+    h = np.arange(1, length//2+1, dtype=float)
+    spectrum = np.zeros(length//2+1, dtype=complex)
+    jump = np.expm1(-2j*np.pi*h*position)/(position*(1-position))
+    if excitation == "velocity":
+        spectrum[1:] = -length*jump/(2j*np.pi*h)
+    else:
+        spectrum[0] = length*.5
+        spectrum[1:] = length*jump/(4*np.pi**2*h*h)
+    return np.fft.irfft(spectrum, n=length)
+
+
 def _pluck(length: int, sr: int, pick: float, hardness: float, noise: float, rng: np.random.Generator,
-           excitation: str = "velocity") -> np.ndarray:
+           excitation: str = "velocity", sampling: str = "grid") -> np.ndarray:
     """One band-limited period of the selected string variable after release."""
     p = int(np.clip(round(pick * length), 1, length - 1))
-    if excitation == "displacement":
+    if sampling == "spectral":
+        shape = _spectral_shape(length, pick, excitation)
+    elif excitation == "displacement":
         # A triangular initial displacement, rounded by the same band-limit filter.
         position = np.arange(length)
         shape = np.where(position < p, position / p, (length-position) / (length-p))
@@ -168,6 +186,7 @@ def steel_string(
     excitation: str = "velocity",
     dispersion_fit: str = "legacy",
     excitation_gains: tuple[float, ...] = (),
+    pluck_sampling: str = "grid",
 ) -> np.ndarray:
     """n samples of a string plucked at fraction `pick` of its length from the bridge.
 
@@ -192,11 +211,20 @@ def steel_string(
     No peak renormalization follows the shaping. Dispersion/fractional delays
     mean these are excitation-bin controls, not exact resonant-partial gains.
     Empty or unity controls retain the original samples and RNG stream exactly.
+
+    ``pluck_sampling="spectral"`` evaluates a finite Fourier series at a continuous
+    pick coordinate, avoiding integer-grid notches and jumps as the position moves.
+    It requires at least three delay samples and retains pick softening by the
+    lowpass and the existing peak normalization;
+    it does not identify a real pick position or certify a realistic timbre.
+    "grid" preserves the original excitation and random-number stream.
     """
     if excitation not in ("velocity", "displacement"):
         raise ValueError("excitation must be velocity or displacement")
     if dispersion_fit not in ("legacy", "bracketed"):
         raise ValueError("dispersion_fit must be legacy or bracketed")
+    if pluck_sampling not in ("grid", "spectral"):
+        raise ValueError("pluck_sampling must be grid or spectral")
     gains = _partial_gains(excitation_gains, name='excitation_gains')
     impulse = np.zeros(n)
     out = np.zeros(n)
@@ -211,7 +239,8 @@ def steel_string(
             continue
         length, b, a = (_loop(f0, sr, decay, decay_high, stiffness) if dispersion_fit == "legacy"
                         else _loop(f0, sr, decay, decay_high, stiffness, dispersion_fit))
-        burst = _pluck(length, sr, pick, hardness, noise, rng, excitation)
+        burst = (_pluck(length, sr, pick, hardness, noise, rng, excitation) if pluck_sampling == "grid"
+                 else _pluck(length, sr, pick, hardness, noise, rng, excitation, sampling=pluck_sampling))
         burst = _shape_excitation(burst, gains)
         impulse[:] = 0.0
         impulse[: min(length, n)] = burst[: min(length, n)]
