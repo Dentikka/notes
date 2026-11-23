@@ -1,4 +1,4 @@
-"""Analytic modes of a generated waveguide, with independently scaled positive losses.
+"""Analytic waveguide modes with independent positive losses and bounded pitch offsets.
 
 No sampled waveforms or measured phases are used. Residues are evaluated from
 the loop and its mathematical excitation, avoiding high-order polynomial deflation.
@@ -26,6 +26,21 @@ def decay_scales(value: object) -> tuple[float, ...]:
             if not np.isfinite(1/scale):
                 raise ValueError('partial_t60_scales produces a nonfinite damping rate')
         result.append(scale)
+    return tuple(result)
+
+
+def pitch_offsets(value: object) -> tuple[float, ...]:
+    if not isinstance(value, (tuple, list)) or len(value) > 80:
+        raise ValueError('partial_pitch_cents needs at most 80 finite offsets in [-100, 100]')
+    result = []
+    for item in value:
+        try:
+            offset = float(item)
+        except (ValueError, TypeError, OverflowError) as error:
+            raise ValueError('partial_pitch_cents needs finite offsets in [-100, 100]') from error
+        if isinstance(item, (bool, np.bool_)) or not np.isfinite(offset) or abs(offset) > 100:
+            raise ValueError('partial_pitch_cents needs finite offsets in [-100, 100]')
+        result.append(offset)
     return tuple(result)
 
 
@@ -109,5 +124,47 @@ def decay_correction(burst: np.ndarray, length: int, b: np.ndarray, a: np.ndarra
         angle = float(np.angle(pole))
         before = np.exp(time*(-alpha+1j*angle))
         after = np.exp(time*(-rate+1j*angle))
+        correction[length:] += 2*(coefficient*(after-before)).real
+    return correction
+
+
+def mode_correction(burst: np.ndarray, length: int, b: np.ndarray, a: np.ndarray,
+                    scales: tuple[float, ...], n: int, *, pitch_cents: tuple[float, ...] = ()) -> np.ndarray:
+    """Retarget static frequencies and losses after initialization, without recorded phases.
+
+    The old decay-only path is retained exactly when pitch offsets are empty/zero.
+    The next unedited mode participates in crossing checks. Each polarisation
+    retains its complex state at the end of its own excitation period.
+    """
+    if not any(offset != 0 for offset in pitch_cents):
+        return decay_correction(burst, length, b, a, scales, n)
+    correction = np.zeros(n)
+    if n <= length+1:
+        return correction
+    count = max(len(scales), len(pitch_cents))
+    poles, factors = loop_modes(length, tuple(b), tuple(a), count+1)
+    angles = np.angle(poles)
+    retuned = angles.copy()
+    available = min(count, len(poles))
+    for index, cents in enumerate(pitch_cents[:available]):
+        retuned[index] *= 2**(cents/1200)
+    if (np.any(retuned <= 0) or np.any(retuned >= np.pi) or np.any(np.diff(retuned) <= 0)):
+        raise ValueError('partial_pitch_cents would cross modes or exceed Nyquist')
+    if not any(offset != 0 for offset in pitch_cents[:available]):
+        return decay_correction(burst, length, b, a, scales, n)
+    poles, factors = poles[:available], factors[:available]
+    coefficients = poles*np.polynomial.polynomial.polyval(poles, burst[::-1])*factors
+    time = np.arange(n-length)
+    for index, (pole, coefficient) in enumerate(zip(poles, coefficients, strict=True)):
+        scale = scales[index] if index < len(scales) else 1.
+        cents = pitch_cents[index] if index < len(pitch_cents) else 0.
+        if scale == 1 and cents == 0:
+            continue
+        alpha = -float(np.log(abs(pole)))
+        rate = alpha/scale
+        if not np.isfinite(rate) or rate <= 0:
+            raise ValueError('partial_t60_scales produces a nonfinite damping rate')
+        before = np.exp(time*(-alpha+1j*angles[index]))
+        after = np.exp(time*(-rate+1j*retuned[index]))
         correction[length:] += 2*(coefficient*(after-before)).real
     return correction
