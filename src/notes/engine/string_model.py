@@ -222,8 +222,10 @@ def steel_string(
     "grid" preserves the original excitation and random-number stream.
 
     ``partial_t60_scales`` optionally multiplies individual oscillatory modes'
-    native T60s. Positive factors retain frequencies and mathematical initial
-    modal coefficients; both polarisations keep their original lifetime ratios.
+    native T60s after the generated excitation period ends. Positive factors
+    retain frequencies and the mathematical modal state at that point; both
+    polarisations keep their original lifetime ratios. The excitation period
+    itself is unchanged before subsequent pickup/filter/pitch readout.
     Empty/unity factors preserve the original signal/RNG exactly. The optional
     modal path requires a contractive loop. Times refer to the source clock,
     before any subsequent pitch readout or note-release envelope.

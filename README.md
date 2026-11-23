@@ -981,7 +981,9 @@ The spectral method requires at least three samples in the string delay.
 `ElectricGuitar(partial_t60_scales=(1., .5, .2))` independently scales the
 waveguide's modal decay times: here the fundamental keeps its lifetime, while
 the second and third modes decay twice and five times faster. Positive factors
-retain each mode's frequency and mathematically generated initial coefficient.
+retain each mode's frequency and mathematically generated state at the end of
+the excitation period. The period itself is unchanged before subsequent
+pickup/filter/pitch readout; the new losses apply after that initialization.
 The factor applies separately to both polarisations, preserving their lifetime
 ratio. Unlisted modes stay unchanged; at most 80 factors are accepted and modes
 above the available oscillatory band are ignored. This is also a note override

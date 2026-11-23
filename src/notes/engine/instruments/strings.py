@@ -209,7 +209,8 @@ class ElectricGuitar(Instrument):
     ``pluck_sampling="spectral"`` uses a continuous pick coordinate instead of
     rounding it to a sample; "grid" preserves the original period construction.
     ``partial_t60_scales`` multiplies individual waveguide modes' T60s without
-    changing their frequencies or mathematical initial coefficients. Both
+    changing their frequencies or mathematical state after the generated
+    excitation period. The source period itself is retained. Both
     polarisations retain their lifetime ratio; empty/unity settings preserve
     old signals exactly. Values refer to source time before pitch readout/release.
 

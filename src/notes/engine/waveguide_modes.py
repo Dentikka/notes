@@ -83,19 +83,22 @@ def loop_modes(length: int, b: tuple[float, ...], a: tuple[float, ...], count: i
 
 def decay_correction(burst: np.ndarray, length: int, b: np.ndarray, a: np.ndarray,
                      scales: tuple[float, ...], n: int) -> np.ndarray:
-    """Change selected modal radii, retaining frequencies and initial modal coefficients.
+    """Change selected modal radii after the generated excitation period finishes.
 
     Each factor multiplies the native T60 of that mode, separately in each
-    polarisation. Unedited modes and the direct transient remain in the caller's
+    polarisation. Frequencies and the modal state at the end of the period are
+    retained. Unedited modes and the direct transient remain in the caller's
     original waveguide signal. This is stable modal damping, not a proof of the
     mechanical energy or radiation model of a real string.
     """
     correction = np.zeros(n)
-    if not n or all(scale == 1 for scale in scales):
+    if n <= length+1 or all(scale == 1 for scale in scales):
         return correction
     poles, factors = loop_modes(length, tuple(b), tuple(a), len(scales))
-    coefficients = np.polynomial.polynomial.polyval(1/poles, burst)*factors
-    time = np.arange(n)
+    # X(1/p) p**length = p * reverse(X)(p). Evaluating at p, rather
+    # than 1/p, avoids huge cancelling states for strongly damped loops.
+    coefficients = poles*np.polynomial.polynomial.polyval(poles, burst[::-1])*factors
+    time = np.arange(n-length)
     for pole, coefficient, scale in zip(poles, coefficients, scales[:len(poles)], strict=True):
         if scale == 1:
             continue
@@ -106,5 +109,5 @@ def decay_correction(burst: np.ndarray, length: int, b: np.ndarray, a: np.ndarra
         angle = float(np.angle(pole))
         before = np.exp(time*(-alpha+1j*angle))
         after = np.exp(time*(-rate+1j*angle))
-        correction += 2*(coefficient*(after-before)).real
+        correction[length:] += 2*(coefficient*(after-before)).real
     return correction
