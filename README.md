@@ -968,6 +968,16 @@ humanization is not reseeded. These controls permit conditional reference fits
 with mathematical excitation; no recorded period, phase or impulse response
 is loaded by the synthesizer. They do not establish a general realistic preset.
 
+`ElectricGuitar(pluck_sampling="spectral")` evaluates the continuous triangular
+pluck (or its velocity profile) as a finite Fourier series, rather than rounding
+the pick coordinate to a sample. This avoids accidental grid notches and abrupt
+changes when the pick crosses a sample boundary. The physical coordinate can
+still create spectral zeros. Existing lowpass rounding, peak normalization and
+noise draws remain; the optional method does not certify a realistic timbre.
+It is also available per note and on `steel_string`; `"grid"` is the unchanged
+default and can reset an inherited spectral setting on an individual note.
+The spectral method requires at least three samples in the string delay.
+
 `ElectricGuitar` and `BassGuitar` also accept per-note `stiffness`, for example
 `Note("E4").param(stiffness=0.0001)`. This is the effective dispersion B of the
 vibrating string; it is not scaled again by fret geometry. Values must be finite
