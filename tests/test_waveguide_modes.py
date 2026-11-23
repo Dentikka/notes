@@ -46,9 +46,19 @@ def test_one_mode_has_exact_requested_decay_and_unchanged_frequency_phase(scale)
     scales = (1., 1., scale)
     delta = decay_correction(burst, length, b, a, scales, n)
     time = np.arange(n)
-    expected = np.exp(-rate*time/scale)*np.cos(2*np.pi*h*time/length+phase)
+    decay_time = np.minimum(time, length)+np.maximum(time-length, 0)/scale
+    expected = np.exp(-rate*decay_time)*np.cos(2*np.pi*h*time/length+phase)
     np.testing.assert_allclose(before+delta, expected, atol=2e-10, rtol=2e-9)
-    assert delta[0] == 0
+    np.testing.assert_array_equal(delta[:length+1], np.zeros(length+1))
+
+
+def test_strongly_damped_initialization_does_not_create_huge_cancelled_states():
+    length, n = 32, 256
+    burst = np.cos(2*np.pi*np.arange(length)/length)
+    b, a = np.array([.01**length]), np.array([1.])
+    delta = decay_correction(burst, length, b, a, (2.,), n)
+    np.testing.assert_array_equal(delta[:length+1], np.zeros(length+1))
+    assert np.isfinite(delta).all() and abs(delta).max() < 2.
 
 
 @pytest.mark.parametrize('sampling', ['grid', 'spectral'])
