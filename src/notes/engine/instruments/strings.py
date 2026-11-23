@@ -13,6 +13,7 @@ from notes.engine.dsp import adsr, delay, filt, karplus_strong, vel_gain
 from notes.engine.effects.tone import EQ, Cabinet, Drive, Filter, GuitarAmp
 from notes.engine.registry import register_instrument
 from notes.engine.string_model import steel_string
+from notes.engine.waveguide_modes import decay_scales
 
 __all__ = ["BassGuitar", "ElectricGuitar", "Pluck"]
 
@@ -207,6 +208,10 @@ class ElectricGuitar(Instrument):
     Defaults preserve the previous spectrum, noise draws and waveform exactly.
     ``pluck_sampling="spectral"`` uses a continuous pick coordinate instead of
     rounding it to a sample; "grid" preserves the original period construction.
+    ``partial_t60_scales`` multiplies individual waveguide modes' T60s without
+    changing their frequencies or mathematical initial coefficients. Both
+    polarisations retain their lifetime ratio; empty/unity settings preserve
+    old signals exactly. Values refer to source time before pitch readout/release.
 
     Per-note parameters: ``palm_mute=True`` for chugs that ring `mute_decay` seconds (T60)
     with the pluck softened to `mute_brightness`. Per-note ``mute_decay`` (positive
@@ -245,6 +250,7 @@ class ElectricGuitar(Instrument):
     excitation_gains: tuple[float, ...] = ()
     excitation_noise: float = .1
     pluck_sampling: str = "grid"
+    partial_t60_scales: tuple[float, ...] = ()
     velocity_brightness: float = 0.0
     wound_treble: float = 1.0
     wound_brightness: float = 1.0
@@ -256,6 +262,7 @@ class ElectricGuitar(Instrument):
     def __post_init__(self) -> None:
         object.__setattr__(self, 'excitation_gains', _partial_gains(self.excitation_gains, name='excitation_gains'))
         object.__setattr__(self, 'excitation_noise', _excitation_noise(self.excitation_noise))
+        object.__setattr__(self, 'partial_t60_scales', decay_scales(self.partial_t60_scales))
         if self.pluck_sampling not in ("grid", "spectral"):
             raise ValueError("pluck_sampling must be grid or spectral")
         if self.stiffness_reference not in ("vibrating", "open"):
@@ -307,6 +314,7 @@ class ElectricGuitar(Instrument):
         sr = ctx.sr
         gains = _partial_gains(v.params.get('excitation_gains', self.excitation_gains), name='excitation_gains')
         noise = _excitation_noise(v.params.get('excitation_noise', self.excitation_noise))
+        losses = decay_scales(v.params.get('partial_t60_scales', self.partial_t60_scales))
         sampling = v.params.get('pluck_sampling', self.pluck_sampling)
         if sampling not in ("grid", "spectral"):
             raise ValueError("pluck_sampling must be grid or spectral")
@@ -356,7 +364,8 @@ class ElectricGuitar(Instrument):
             y = steel_string(v.freq, m, sr, rng, t60=t60, t60_high=t60_high, pick=pick,
                              hardness=hardness, stiffness=stiffness, second=self.polarization,
                              dispersion_fit=self.dispersion_fit,
-                             prompt_t60=prompt, excitation_gains=gains, noise=noise, pluck_sampling=sampling)
+                             prompt_t60=prompt, excitation_gains=gains, noise=noise, pluck_sampling=sampling,
+                             partial_t60_scales=losses)
             if spatial:
                 from notes.engine.pickup import spatial_pickup
 

@@ -978,6 +978,19 @@ It is also available per note and on `steel_string`; `"grid"` is the unchanged
 default and can reset an inherited spectral setting on an individual note.
 The spectral method requires at least three samples in the string delay.
 
+`ElectricGuitar(partial_t60_scales=(1., .5, .2))` independently scales the
+waveguide's modal decay times: here the fundamental keeps its lifetime, while
+the second and third modes decay twice and five times faster. Positive factors
+retain each mode's frequency and mathematically generated initial coefficient.
+The factor applies separately to both polarisations, preserving their lifetime
+ratio. Unlisted modes stay unchanged; at most 80 factors are accepted and modes
+above the available oscillatory band are ignored. This is also a note override
+and a `steel_string` option. Empty/unity factors preserve old samples and RNG
+exactly; an empty note tuple resets inherited factors. The optional path needs
+a contractive loop and resolved distinct modes. Times are in the unbent source
+clock, before pitch readout/release. It controls stable modal damping, without
+certifying real-string mechanics, an unchanged finite-window attack, or realism.
+
 `ElectricGuitar` and `BassGuitar` also accept per-note `stiffness`, for example
 `Note("E4").param(stiffness=0.0001)`. This is the effective dispersion B of the
 vibrating string; it is not scaled again by fret geometry. Values must be finite
