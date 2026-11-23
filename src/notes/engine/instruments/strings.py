@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from notes.engine.articulation import pitch_curve, variable_rate_read
+from notes.engine.articulation import _partial_gains, pitch_curve, variable_rate_read
 from notes.engine.base import Effect, Instrument, RenderContext, Voice
 from notes.engine.dsp import adsr, delay, filt, karplus_strong, vel_gain
 from notes.engine.effects.tone import EQ, Cabinet, Drive, Filter, GuitarAmp
@@ -109,6 +109,16 @@ def _note_stiffness(v: Voice, fallback: float) -> float:
     return value
 
 
+def _excitation_noise(value: object) -> float:
+    try:
+        noise = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError('excitation_noise must be finite in [0,1]') from error
+    if isinstance(value, (bool, np.bool_)) or not np.isfinite(noise) or not 0 <= noise <= 1:
+        raise ValueError('excitation_noise must be finite in [0,1]')
+    return noise
+
+
 @register_instrument("pluck")
 @dataclass(frozen=True, kw_only=True)
 class Pluck(Instrument):
@@ -190,6 +200,12 @@ class ElectricGuitar(Instrument):
     trial resonance lies outside the old narrow search. Default "legacy" retains
     the original waveform; both use the same two-allpass dispersion model.
 
+    ``excitation_gains`` controls generated excitation-period DFT bins before
+    the feedback loop; it accepts note overrides and an empty reset. These are
+    not exact resonant-partial gains. ``excitation_noise`` controls initial
+    spatial noise in 0..1, independently of the short ``pick_noise`` click.
+    Defaults preserve the previous spectrum, noise draws and waveform exactly.
+
     Per-note parameters: ``palm_mute=True`` for chugs that ring `mute_decay` seconds (T60)
     with the pluck softened to `mute_brightness`. Per-note ``mute_decay`` (positive
     seconds) and ``mute_brightness`` (0..1) override those controls and require
@@ -224,6 +240,8 @@ class ElectricGuitar(Instrument):
     pitch_drift: float = 0.0
     fretting: bool = False
     pick_noise: float = 0.2
+    excitation_gains: tuple[float, ...] = ()
+    excitation_noise: float = .1
     velocity_brightness: float = 0.0
     wound_treble: float = 1.0
     wound_brightness: float = 1.0
@@ -233,6 +251,8 @@ class ElectricGuitar(Instrument):
     level: float = 0.5
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, 'excitation_gains', _partial_gains(self.excitation_gains, name='excitation_gains'))
+        object.__setattr__(self, 'excitation_noise', _excitation_noise(self.excitation_noise))
         if self.stiffness_reference not in ("vibrating", "open"):
             raise ValueError('stiffness_reference must be vibrating or open')
         if self.stiffness_reference == "open":
@@ -280,6 +300,8 @@ class ElectricGuitar(Instrument):
 
     def voice(self, v: Voice, ctx: RenderContext, rng: np.random.Generator) -> np.ndarray:
         sr = ctx.sr
+        gains = _partial_gains(v.params.get('excitation_gains', self.excitation_gains), name='excitation_gains')
+        noise = _excitation_noise(v.params.get('excitation_noise', self.excitation_noise))
         stiffness = _note_stiffness(v, self.stiffness)
         muted = bool(v.params.get("palm_mute", False))
         legato = bool(v.params.get("legato", False))
@@ -326,7 +348,7 @@ class ElectricGuitar(Instrument):
             y = steel_string(v.freq, m, sr, rng, t60=t60, t60_high=t60_high, pick=pick,
                              hardness=hardness, stiffness=stiffness, second=self.polarization,
                              dispersion_fit=self.dispersion_fit,
-                             prompt_t60=prompt)
+                             prompt_t60=prompt, excitation_gains=gains, noise=noise)
             if spatial:
                 from notes.engine.pickup import spatial_pickup
 

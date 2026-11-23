@@ -25,6 +25,7 @@ from __future__ import annotations
 import numpy as np
 from scipy.optimize import brentq
 
+from notes.engine.articulation import _partial_gains
 from notes.engine.dsp import dc_block, feedback_delay, filt
 
 __all__ = ["steel_string"]
@@ -140,6 +141,15 @@ def _pluck(length: int, sr: int, pick: float, hardness: float, noise: float, rng
     return y / max(float(np.max(np.abs(y))), 1e-9)
 
 
+def _shape_excitation(burst: np.ndarray, gains: tuple[float, ...]) -> np.ndarray:
+    count = min(len(gains), len(burst)//2)
+    if not count or all(gain == 1 for gain in gains[:count]):
+        return burst
+    spectrum = np.fft.rfft(burst)
+    spectrum[1:count+1] *= gains[:count]
+    return np.fft.irfft(spectrum, n=len(burst))
+
+
 def steel_string(
     freq: float,
     n: int,
@@ -157,6 +167,7 @@ def steel_string(
     prompt_t60: float | None = None,
     excitation: str = "velocity",
     dispersion_fit: str = "legacy",
+    excitation_gains: tuple[float, ...] = (),
 ) -> np.ndarray:
     """n samples of a string plucked at fraction `pick` of its length from the bridge.
 
@@ -173,11 +184,20 @@ def steel_string(
     trial coefficients do not silently disable the stiffness fit. It retains
     the two-allpass approximation and its 1.5 kHz reference, not an exact modal
     string. "legacy" preserves the original waveform.
+
+    ``excitation_gains`` optionally scales successive non-DC DFT bins of each
+    mathematically generated excitation period before it enters the loop.
+    Values are in 0..16; omitted bins remain unchanged and unavailable bins
+    are ignored. This preserves generated bin phases, not recorded phases.
+    No peak renormalization follows the shaping. Dispersion/fractional delays
+    mean these are excitation-bin controls, not exact resonant-partial gains.
+    Empty or unity controls retain the original samples and RNG stream exactly.
     """
     if excitation not in ("velocity", "displacement"):
         raise ValueError("excitation must be velocity or displacement")
     if dispersion_fit not in ("legacy", "bracketed"):
         raise ValueError("dispersion_fit must be legacy or bracketed")
+    gains = _partial_gains(excitation_gains, name='excitation_gains')
     impulse = np.zeros(n)
     out = np.zeros(n)
     detuned = freq * 2.0 ** (detune / 1200.0)
@@ -192,6 +212,7 @@ def steel_string(
         length, b, a = (_loop(f0, sr, decay, decay_high, stiffness) if dispersion_fit == "legacy"
                         else _loop(f0, sr, decay, decay_high, stiffness, dispersion_fit))
         burst = _pluck(length, sr, pick, hardness, noise, rng, excitation)
+        burst = _shape_excitation(burst, gains)
         impulse[:] = 0.0
         impulse[: min(length, n)] = burst[: min(length, n)]
         out += weight * feedback_delay(impulse, length, 1.0, b, a)
