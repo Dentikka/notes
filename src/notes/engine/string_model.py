@@ -27,6 +27,7 @@ from scipy.optimize import brentq
 
 from notes.engine.articulation import _partial_gains
 from notes.engine.dsp import dc_block, feedback_delay, filt
+from notes.engine.waveguide_modes import decay_correction, decay_scales
 
 __all__ = ["steel_string"]
 
@@ -187,6 +188,7 @@ def steel_string(
     dispersion_fit: str = "legacy",
     excitation_gains: tuple[float, ...] = (),
     pluck_sampling: str = "grid",
+    partial_t60_scales: tuple[float, ...] = (),
 ) -> np.ndarray:
     """n samples of a string plucked at fraction `pick` of its length from the bridge.
 
@@ -218,6 +220,13 @@ def steel_string(
     lowpass and the existing peak normalization;
     it does not identify a real pick position or certify a realistic timbre.
     "grid" preserves the original excitation and random-number stream.
+
+    ``partial_t60_scales`` optionally multiplies individual oscillatory modes'
+    native T60s. Positive factors retain frequencies and mathematical initial
+    modal coefficients; both polarisations keep their original lifetime ratios.
+    Empty/unity factors preserve the original signal/RNG exactly. The optional
+    modal path requires a contractive loop. Times refer to the source clock,
+    before any subsequent pitch readout or note-release envelope.
     """
     if excitation not in ("velocity", "displacement"):
         raise ValueError("excitation must be velocity or displacement")
@@ -226,6 +235,7 @@ def steel_string(
     if pluck_sampling not in ("grid", "spectral"):
         raise ValueError("pluck_sampling must be grid or spectral")
     gains = _partial_gains(excitation_gains, name='excitation_gains')
+    scales = decay_scales(partial_t60_scales)
     impulse = np.zeros(n)
     out = np.zeros(n)
     detuned = freq * 2.0 ** (detune / 1200.0)
@@ -244,5 +254,8 @@ def steel_string(
         burst = _shape_excitation(burst, gains)
         impulse[:] = 0.0
         impulse[: min(length, n)] = burst[: min(length, n)]
-        out += weight * feedback_delay(impulse, length, 1.0, b, a)
+        wave = feedback_delay(impulse, length, 1.0, b, a)
+        if scales and any(scale != 1 for scale in scales):
+            wave += decay_correction(burst, length, b, a, scales, n)
+        out += weight * wave
     return dc_block(out, sr)
