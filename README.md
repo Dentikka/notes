@@ -952,6 +952,22 @@ Electric-guitar notes also accept `pick_position` and `pick_hardness` through
 before fretting, mute/legato and velocity-brightness modifiers. They store scalar
 performance parameters; no reference waveform is used by the synthesizer.
 
+`ElectricGuitar(excitation_gains=(1., .5, 1.5))` optionally shapes successive
+non-DC DFT bins of the generated pluck period before the feedback loop. Gains
+are in 0..16, at most 80; unlisted bins remain unchanged and unavailable bins
+are ignored. Generated bin phases are retained and no peak normalization
+follows shaping. Dispersion/fractional delay means these are not exact
+resonant-partial gains. The same control is available on `steel_string` and on
+individual electric-guitar notes; an empty note tuple resets inherited gains.
+Empty/unity settings preserve the previous samples and RNG stream exactly.
+
+`excitation_noise=0..1` independently controls the initial spatial noise,
+default .1, on the electric guitar and its notes. It is separate from the short
+`pick_noise` click. Zero still consumes the same RNG draws, so subsequent note
+humanization is not reseeded. These controls permit conditional reference fits
+with mathematical excitation; no recorded period, phase or impulse response
+is loaded by the synthesizer. They do not establish a general realistic preset.
+
 `ElectricGuitar` and `BassGuitar` also accept per-note `stiffness`, for example
 `Note("E4").param(stiffness=0.0001)`. This is the effective dispersion B of the
 vibrating string; it is not scaled again by fret geometry. Values must be finite
