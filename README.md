@@ -993,6 +993,18 @@ a contractive loop and resolved distinct modes. Times are in the unbent source
 clock, before pitch readout/release. It controls stable modal damping, without
 certifying real-string mechanics, an unchanged finite-window attack, or realism.
 
+`ElectricGuitar(partial_pitch_cents=(0., 3., -1.))` retunes resolved modes by
+small static offsets after the generated excitation period: here the first
+mode stays put, the second moves up three cents and the third down one cent.
+It retains the synthesizer's generated modal states and native lifetimes;
+`partial_t60_scales` can change lifetimes simultaneously. At most 80 finite
+offsets in [-100, 100] are accepted. Both polarisations receive the same cents
+offset; crossing neighbouring modes or Nyquist is rejected. Unlisted or
+unavailable modes stay unchanged. Constructor, note override and empty reset
+are supported; empty/zero offsets retain previous samples/RNG exactly,
+including the decay-only path. This is a source-clock modal parameter, not a
+certificate that a measured phase-frequency trajectory is one physical mode.
+
 `ElectricGuitar` and `BassGuitar` also accept per-note `stiffness`, for example
 `Note("E4").param(stiffness=0.0001)`. This is the effective dispersion B of the
 vibrating string; it is not scaled again by fret geometry. Values must be finite

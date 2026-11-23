@@ -27,7 +27,7 @@ from scipy.optimize import brentq
 
 from notes.engine.articulation import _partial_gains
 from notes.engine.dsp import dc_block, feedback_delay, filt
-from notes.engine.waveguide_modes import decay_correction, decay_scales
+from notes.engine.waveguide_modes import decay_scales, mode_correction, pitch_offsets
 
 __all__ = ["steel_string"]
 
@@ -189,6 +189,7 @@ def steel_string(
     excitation_gains: tuple[float, ...] = (),
     pluck_sampling: str = "grid",
     partial_t60_scales: tuple[float, ...] = (),
+    partial_pitch_cents: tuple[float, ...] = (),
 ) -> np.ndarray:
     """n samples of a string plucked at fraction `pick` of its length from the bridge.
 
@@ -229,6 +230,12 @@ def steel_string(
     Empty/unity factors preserve the original signal/RNG exactly. The optional
     modal path requires a contractive loop. Times refer to the source clock,
     before any subsequent pitch readout or note-release envelope.
+
+    ``partial_pitch_cents`` adds static offsets in [-100, 100] cents to resolved
+    oscillatory modes after initialization. It retains the generated release
+    state and each polarisation's native lifetime, unless loss scales also act.
+    Mode crossing/Nyquist violations are rejected; omitted/unavailable modes
+    are unchanged. Empty/zero offsets retain the decay-only path exactly.
     """
     if excitation not in ("velocity", "displacement"):
         raise ValueError("excitation must be velocity or displacement")
@@ -238,6 +245,7 @@ def steel_string(
         raise ValueError("pluck_sampling must be grid or spectral")
     gains = _partial_gains(excitation_gains, name='excitation_gains')
     scales = decay_scales(partial_t60_scales)
+    offsets = pitch_offsets(partial_pitch_cents)
     impulse = np.zeros(n)
     out = np.zeros(n)
     detuned = freq * 2.0 ** (detune / 1200.0)
@@ -257,7 +265,7 @@ def steel_string(
         impulse[:] = 0.0
         impulse[: min(length, n)] = burst[: min(length, n)]
         wave = feedback_delay(impulse, length, 1.0, b, a)
-        if scales and any(scale != 1 for scale in scales):
-            wave += decay_correction(burst, length, b, a, scales, n)
+        if any(scale != 1 for scale in scales) or any(offset != 0 for offset in offsets):
+            wave += mode_correction(burst, length, b, a, scales, n, pitch_cents=offsets)
         out += weight * wave
     return dc_block(out, sr)
