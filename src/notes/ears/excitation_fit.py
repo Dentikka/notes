@@ -127,7 +127,7 @@ def fit_excitation_gains(
     normalize_start: float = .14, normalize_end: float = .3,
     window_seconds: float = .12, step: float = .02, fft_size: int | None = None,
     initial: Sequence[float] | None = None, bounds: tuple[float, float] = (.001, 16.),
-    max_nfev: int = 40, regularization: float = .05,
+    max_nfev: int = 40, regularization: float = .05, log_weighting: str = 'uniform',
 ) -> ExcitationGainFit:
     """Fit dry excitation shape with fixed generated phase, poles and one early level.
 
@@ -148,8 +148,17 @@ def fit_excitation_gains(
     Only reference magnitudes enter fitting. Returns the lowest observed physical
     MAE, including the initial proposal; regularization guides bounded log-gain
     LS, while its convergence flag/message refer to the optimizer itself.
+
+    ``log_weighting='amplitude'`` weights log residuals by the reference band
+    amplitude relative to early total power. Linear-amplitude residuals retain
+    their original weights. This reduces the influence of many weak components
+    when their errors conflict with dominant components. It is an optional
+    calibration criterion, not a validated perceptual metric; costs from the two
+    criteria are not directly comparable. ``'uniform'`` preserves the old result.
     """
     ref = _mono(reference)
+    if log_weighting not in ('uniform', 'amplitude'):
+        raise ValueError("log_weighting must be 'uniform' or 'amplitude'")
     if (not isinstance(basis, ExcitationBasis) or len(ref) != basis.waves.shape[1]
             or isinstance(sr, bool) or not isinstance(sr, int) or sr < 1000):
         raise ValueError('matching reference/basis length and integer sample rate>=1000 required')
@@ -223,6 +232,8 @@ def fit_excitation_gains(
         scale = max(float(np.median(power[-6:, early].sum(axis=0))), 1e-30)
         power = np.maximum(power[:, active] / scale, 10 ** (-45 / 10))
         log = (10 * np.log10(power) - target_log) * weights
+        if log_weighting == 'amplitude':
+            log *= target_amp
         amp = (np.sqrt(power) - target_amp) * weights
         physical = np.r_[.25 * log.ravel(), 30. * amp.ravel(), (3. * log[:controlled] * support).ravel()]
         cost = float(np.mean(abs(physical)))
