@@ -7,7 +7,13 @@ from notes.ears.compare import ANALYSIS_RATE, Comparison, compare, format_compar
 from notes.ears.excitation_fit import ExcitationBasis, ExcitationGainFit, excitation_basis, fit_excitation_gains
 from notes.ears.fit import FitResult, fit_loss, fit_reference
 from notes.ears.idmt import idmt_music
-from notes.ears.inharmonicity import InharmonicPartial, StringInharmonicity, string_inharmonicity
+from notes.ears.inharmonicity import (
+    InharmonicPartial,
+    PartialPitchFit,
+    StringInharmonicity,
+    fit_partial_pitch_cents,
+    string_inharmonicity,
+)
 from notes.ears.mert import MertEar
 from notes.ears.modal_pluck_fit import ModalPluckGeometryFit, ModalPluckObservation, ModalPluckTrial, fit_modal_pluck
 from notes.ears.note_profile import PartialDecay, harmonic_shape_distance, infer_expression_points, partial_decays
@@ -49,6 +55,7 @@ __all__ = [
     "PartialDecay",
     "PartialEnvelopes",
     "PartialGainFit",
+    "PartialPitchFit",
     "RoughnessEstimate",
     "TextureFitResult",
     "StringInharmonicity",
@@ -63,6 +70,7 @@ __all__ = [
     "fit_excitation_gains",
     "fit_modal_pluck",
     "fit_partial_gains",
+    "fit_partial_pitch_cents",
     "fetch_aesthetics",
     "fit_reference",
     "fit_roughness",

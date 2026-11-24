@@ -1005,6 +1005,20 @@ are supported; empty/zero offsets retain previous samples/RNG exactly,
 including the decay-only path. This is a source-clock modal parameter, not a
 certificate that a measured phase-frequency trajectory is one physical mode.
 
+`notes.ears.fit_partial_pitch_cents(paired_measurements, current=existing_offsets)`
+pools paired `(reference, model)` results of `string_inharmonicity` for the same
+known anchor note and matching windows. It uses individually supported partial
+ratios even when a global stiffness law does not fit. By default at least two
+observations, at most 1.5 cents total span, strong/covered components and low phase
+residual are required. `numbers=(5,)` restricts correction to the fifth component.
+The result's `offsets` are candidate `partial_pitch_cents` settings; `deltas`,
+support counts, spans, acceptance flags and rejection reasons remain visible.
+The fundamental and unsupported settings are preserved. Large deltas and final
+offsets outside [-100,100] are rejected rather than clipped. This is conditional
+effective-frequency calibration, not pitch transcription, recorded-phase transfer
+or a cross-register material table. Validate native root ordering/Nyquist and the
+complete sound on held windows separately.
+
 `ElectricGuitar` and `BassGuitar` also accept per-note `stiffness`, for example
 `Note("E4").param(stiffness=0.0001)`. This is the effective dispersion B of the
 vibrating string; it is not scaled again by fret geometry. Values must be finite
