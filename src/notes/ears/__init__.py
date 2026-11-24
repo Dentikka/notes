@@ -4,6 +4,7 @@ measures up against a reference recording (`compare`, numpy and scipy only)."""
 from notes.ears.aesthetics import AestheticsEar, fetch_aesthetics
 from notes.ears.clap import CLAP_SAMPLE_RATE, DEFAULT_MODEL, Ear, Tag, cosine, format_report, to_clap_rate, windows
 from notes.ears.compare import ANALYSIS_RATE, Comparison, compare, format_comparison, listening, load
+from notes.ears.excitation_fit import ExcitationBasis, ExcitationGainFit, excitation_basis, fit_excitation_gains
 from notes.ears.fit import FitResult, fit_loss, fit_reference
 from notes.ears.idmt import idmt_music
 from notes.ears.inharmonicity import InharmonicPartial, StringInharmonicity, string_inharmonicity
@@ -35,6 +36,8 @@ __all__ = [
     "BandPeakTrajectory",
     "AestheticsEar",
     "Ear",
+    "ExcitationBasis",
+    "ExcitationGainFit",
     "FitResult",
     "InharmonicPartial",
     "InterharmonicEnergy",
@@ -56,6 +59,8 @@ __all__ = [
     "compare_peak_trajectories",
     "cosine",
     "fit_loss",
+    "excitation_basis",
+    "fit_excitation_gains",
     "fit_modal_pluck",
     "fit_partial_gains",
     "fetch_aesthetics",

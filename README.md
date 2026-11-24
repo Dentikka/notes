@@ -1137,6 +1137,38 @@ It fits normalized spectral shape, not loudness, tuning, recorded phases or a
 transferable preset. Unsupported reference estimates use a white-noise bound,
 which is not a general noise classifier.
 
+For a dry voice that is affine in its excitation controls,
+`notes.ears.excitation_basis(render, controls=12)` builds generated constant/unit
+responses and checks a non-unity probe. The callback must use the same note,
+losses, tuning, sample count and identically seeded fresh RNG every time. Return
+floating mono audio before master normalization, limiting and amplification,
+including the linear pickup/insert filters that the actual renderer will apply.
+Nonlinear or nondeterministic callbacks fail the probe. For example, render an
+`ElectricGuitar(amplified=False)` with the supplied `excitation_gains` tuple.
+
+```python
+from notes.ears import excitation_basis, fit_excitation_gains
+
+basis = excitation_basis(render_gains, controls=12)
+fit = fit_excitation_gains(
+    reference_mono, basis, 44100,
+    reference_hz=reference_partial_hz, model_hz=model_partial_hz,
+    start=0.14, end=0.65,
+)
+# Apply numeric controls through the same instrument or note's excitation_gains.
+```
+
+The two frequency lists must label corresponding supported components on each
+signal's own frequencies. Exact generated band-power quadratic forms avoid
+re-rendering during fitting; the recording supplies magnitudes only. One early
+level is retained, with explicit fit/normalization windows on the original clock.
+The result exposes selected gains, cost, initial cost, optimizer convergence,
+evaluation counts, support, active bounds and the affine-probe error. DFT-bin
+excitation gains differ from independent modal readout gains. This conditional
+shape fit does not identify losses, physical geometry, pitch or recorded phases;
+validate later windows and new executions before adopting a preset. No existing
+source default or fitting method is replaced.
+
 `notes.ears.fit_modal_pluck(observations, pick_reference="auto")` fits three
 shared effective controls: pluck position, pickup position and force bandwidth.
 Each `ModalPluckObservation` supplies a known pitch/string, fundamental, stiffness,
