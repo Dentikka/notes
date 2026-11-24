@@ -5,6 +5,7 @@ certificate of instrument realism or a material-property measurement in situ.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -31,6 +32,124 @@ class StringInharmonicity:
     partials: tuple[InharmonicPartial, ...]
     reliable: bool
     reason: str | None
+
+
+@dataclass(frozen=True)
+class PartialPitchFit:
+    """Supported relative-frequency corrections; no recorded phase or carrier."""
+
+    offsets: tuple[float, ...]
+    deltas: tuple[float, ...]
+    support_counts: tuple[int, ...]
+    spans_cents: tuple[float | None, ...]
+    accepted: tuple[bool, ...]
+    reasons: tuple[str, ...]
+
+
+def fit_partial_pitch_cents(
+    observations: Sequence[tuple[StringInharmonicity, StringInharmonicity]],
+    *, current: Sequence[float] = (), harmonics: int = 12, numbers: Sequence[int] | None = None,
+    min_observations: int = 2, max_span_cents: float = 1.5, max_delta_cents: float = 50.,
+    min_coverage: float = .9, max_phase_residual: float = .15, min_level_db: float = -35.,
+) -> PartialPitchFit:
+    """Pool paired(reference, model) relative-frequency measurements of one known note.
+
+    Estimate each StringInharmonicity on its own signal with matching time windows.
+    Individual accepted partials can be usable even when the global B-law fit is
+    unreliable. Fundamental anchors must be within50 cents across usable pairs;
+    this is not a cross-pitch material calibration or an unknown-note transcriber.
+
+    Each supported delta is1200*log2(reference_ratio/model_ratio), pooled by median
+    only when support count and total span pass the declared guards. Add it to
+    current to obtain candidate partial_pitch_cents controls. The fundamental
+    correction is preserved; unsupported/unselected components keep their current
+    settings, not an inferred zero. numbers optionally limits the updated indices
+    (1-based harmonic numbers). Limits are [-100,100] cents without silent clipping.
+
+    Output describes effective relative frequency, not uniquely identified poles
+    or stiffness. Phase values are never returned. Validate actual source root
+    order/Nyquist, held windows and the complete nonlinear rig separately. Repeated
+    windows are consistency checks, not independent statistical replications.
+    """
+    if (isinstance(harmonics, bool) or not isinstance(harmonics, int) or not 2 <= harmonics <= 32
+            or isinstance(min_observations, bool) or not isinstance(min_observations, int) or min_observations < 1):
+        raise ValueError('2..32 harmonics and positive integer observation count required')
+    if (not np.isfinite([max_span_cents, max_delta_cents, min_coverage, max_phase_residual, min_level_db]).all()
+            or max_span_cents < 0 or max_delta_cents <= 0 or not 0 < min_coverage <= 1 or max_phase_residual <= 0):
+        raise ValueError('finite valid frequency-consistency guards required')
+    if np.iscomplexobj(current):
+        raise ValueError('real current pitch offsets required')
+    old = np.asarray(current, dtype=float)
+    if old.ndim != 1 or len(old) > harmonics or not np.isfinite(old).all() or np.any(abs(old) > 100):
+        raise ValueError('current offsets must fit harmonic count and[-100,100] cents')
+    old = np.pad(old, (0, harmonics - len(old)))
+    selected = tuple(range(2, harmonics + 1)) if numbers is None else tuple(numbers)
+    if any(isinstance(h, bool) or not isinstance(h, (int, np.integer)) or not 2 <= h <= harmonics for h in selected):
+        raise ValueError('selected harmonic numbers must be unique integers2..harmonics')
+    selected = tuple(map(int, selected))
+    if len(set(selected)) != len(selected):
+        raise ValueError('selected harmonic numbers must be unique integers2..harmonics')
+    if not observations:
+        raise ValueError('at least one paired measurement required')
+    cells: list[list[float]] = [[] for _ in range(harmonics)]
+    anchors = []
+
+    def usable(p: InharmonicPartial) -> bool:
+        if not p.accepted:
+            return False
+        if (p.ratio is None or p.ratio <= 0 or p.phase_residual_rms is None
+                or not np.isfinite([p.ratio, p.phase_residual_rms, p.coverage,
+                                    p.relative_level_db, p.prominence_db]).all()
+                or p.phase_residual_rms < 0 or not 0 <= p.coverage <= 1):
+            raise ValueError('accepted component has invalid frequency/support values')
+        return (p.coverage >= min_coverage and p.phase_residual_rms <= max_phase_residual
+                and p.relative_level_db >= min_level_db and p.prominence_db > 12)
+
+    for pair in observations:
+        if (not isinstance(pair, (tuple, list)) or len(pair) != 2
+                or any(not isinstance(p, StringInharmonicity) for p in pair)):
+            raise ValueError('paired reference/model StringInharmonicity measurements required')
+        reference, model = pair
+        if reference.f0 is None or model.f0 is None:
+            continue
+        if not np.isfinite([reference.f0, model.f0]).all() or min(reference.f0, model.f0) <= 0:
+            raise ValueError('positive finite fundamental anchors required')
+        anchors.extend((reference.f0, model.f0))
+        maps = []
+        for profile in pair:
+            by_number = {p.number: p for p in profile.partials}
+            if len(by_number) != len(profile.partials):
+                raise ValueError('duplicate component numbers in one measurement')
+            maps.append(by_number)
+        for h in selected:
+            a, b = maps[0].get(h), maps[1].get(h)
+            if a is not None and b is not None and usable(a) and usable(b):
+                cells[h - 1].append(float(1200 * np.log2(a.ratio / b.ratio)))
+    if anchors and 1200 * np.log2(max(anchors) / min(anchors)) > 50:
+        raise ValueError('observations must refer to the same known anchor note')
+    offsets, deltas = old.copy(), np.zeros(harmonics)
+    spans: list[float | None] = [None] * harmonics
+    accepted = [False] * harmonics
+    reasons = ['anchor_preserved'] + ['not_selected'] * (harmonics - 1)
+    for h in selected:
+        values = cells[h - 1]
+        spans[h - 1] = float(np.ptp(values)) if values else None
+        reason = 'few_supported_observations'
+        if len(values) >= min_observations:
+            delta = float(np.median(values))
+            reason = 'inconsistent_relative_frequency'
+            if spans[h - 1] <= max_span_cents:
+                reason = 'delta_limit'
+                if abs(delta) <= max_delta_cents:
+                    reason = 'offset_limit'
+                    if abs(old[h - 1] + delta) <= 100:
+                        offsets[h - 1] += delta
+                        deltas[h - 1] = delta
+                        accepted[h - 1] = True
+                        reason = 'supported'
+        reasons[h - 1] = reason
+    return PartialPitchFit(tuple(map(float, offsets)), tuple(map(float, deltas)), tuple(map(len, cells)),
+                           tuple(spans), tuple(accepted), tuple(reasons))
 
 
 def string_inharmonicity(audio: np.ndarray, sr: int, expected: float, *,
