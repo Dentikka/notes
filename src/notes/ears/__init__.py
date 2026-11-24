@@ -20,6 +20,7 @@ from notes.ears.note_profile import PartialDecay, harmonic_shape_distance, infer
 from notes.ears.partial_envelopes import PartialEnvelopes, PartialGainFit, fit_partial_gains, partial_envelopes
 from notes.ears.percussion import BandPeakTrajectory, band_peak_trajectory, compare_peak_trajectories
 from notes.ears.polyphonic import TemplateTrack, notes_from_templates, template_track
+from notes.ears.spectral import spectral_profile
 from notes.ears.texture import (
     InterharmonicEnergy,
     RoughnessEstimate,
@@ -88,6 +89,7 @@ __all__ = [
     "partial_decays",
     "partial_envelopes",
     "string_inharmonicity",
+    "spectral_profile",
     "template_track",
     "to_clap_rate",
     "tracked_music",

@@ -9,6 +9,7 @@ from notes.engine.instruments.modal_string import ModalString
 from notes.engine.instruments.noise import Noise
 from notes.engine.instruments.orchestral import BowedString, Cello, Piano, Violin
 from notes.engine.instruments.rock_drums import RockKit
+from notes.engine.instruments.spectral import SpectralTone
 from notes.engine.instruments.strings import BassGuitar, ElectricGuitar, Pluck
 from notes.engine.instruments.synth import Bass, Lead, Pad, Synth
 from notes.engine.instruments.synth_guitar import SynthGuitar
@@ -35,6 +36,7 @@ __all__ = [
     "Pad",
     "Pluck",
     "RockKit",
+    "SpectralTone",
     "Synth",
     "SynthGuitar",
 ]

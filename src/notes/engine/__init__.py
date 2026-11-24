@@ -2,7 +2,19 @@
 
 from notes.engine.audio import read_wav, write_wav
 from notes.engine.base import Effect, Instrument, RenderContext, Voice
-from notes.engine.effects import EQ, Body, Cabinet, Chorus, Compressor, Delay, Drive, Filter, GuitarAmp, Reverb, Room
+from notes.engine.effects import (
+    EQ,
+    Body,
+    Cabinet,
+    Chorus,
+    Compressor,
+    Delay,
+    Drive,
+    Filter,
+    GuitarAmp,
+    Reverb,
+    Room,
+)
 from notes.engine.instruments import (
     FM,
     AcousticGuitar,
@@ -24,6 +36,7 @@ from notes.engine.instruments import (
     Piano,
     Pluck,
     RockKit,
+    SpectralTone,
     Synth,
     SynthGuitar,
     Violin,
@@ -37,6 +50,7 @@ from notes.engine.registry import (
     register_effect,
     register_instrument,
 )
+from notes.engine.spectral import SpectralProfile
 
 __all__ = [
     "EFFECTS",
@@ -73,6 +87,8 @@ __all__ = [
     "Pad",
     "Pluck",
     "RockKit",
+    "SpectralProfile",
+    "SpectralTone",
     "Reverb",
     "Room",
     "RenderContext",
