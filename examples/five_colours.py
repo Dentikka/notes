@@ -127,14 +127,14 @@ def chamber():
     p.track(
         "violin",
         Violin(pressure=0.42, vibrato=0.055, bow_noise=0.012, attack=0.10, release=0.25),
-        gain=-8,
+        gain=-6,
         pan=0.25,
         fx=(Filter(cutoff=5000), Reverb(size=0.47, damp=0.5, mix=0.18)),
     )
     p.track(
         "cello",
         Cello(pressure=0.4, vibrato=0.045, bow_noise=0.012, release=0.25),
-        gain=-9,
+        gain=-6,
         pan=-0.23,
         fx=(Filter(kind="highpass", cutoff=95), Reverb(size=0.43, mix=0.13)),
     )
@@ -203,7 +203,7 @@ def bossa():
     p.track(
         "steel",
         AcousticGuitar(fretting=True, brightness=0.55, pick_noise=0.045),
-        gain=-4,
+        gain=10,
         pan=0.35,
         fx=(Filter(kind="highpass", cutoff=170), Filter(cutoff=5000), Reverb(size=0.25, mix=0.08)),
     )
@@ -214,9 +214,7 @@ def bossa():
         gain=-3,
         fx=(Compressor(threshold=-20, ratio=2, attack=0.02, release=0.12),),
     )
-    p.track(
-        "percussion", DrumKit(decay=0.55, punch=0.15), gain=-10, pan=0.1, fx=(Room(size=0.2, decay=0.22, mix=0.06),)
-    )
+    p.track("percussion", DrumKit(decay=0.55, punch=0.15), gain=-4, pan=0.1, fx=(Room(size=0.2, decay=0.22, mix=0.06),))
     progression = [(48, "maj7"), (45, "m7"), (50, "m7"), (43, "7"), (52, "m7"), (45, "7"), (50, "m7"), (43, "7")]
     harmony = (
         progression[:2]
@@ -284,7 +282,7 @@ def funk():
         ElectricGuitar(
             drive=0.16, tone=0.4, pickup="neck", pickup_q=0.7, fretting=True, treble_decay=0.75, pick_noise=0.04
         ),
-        gain=-2,
+        gain=6,
         pan=-0.36,
         fx=(
             Filter(kind="highpass", cutoff=170),
@@ -300,7 +298,7 @@ def funk():
         gain=-1,
         fx=(Room(size=0.22, decay=0.25, damp=0.6, mix=0.06),),
     )
-    p.track("hats", RockKit(decay=0.5), gain=-7, pan=0.32)
+    p.track("hats", RockKit(decay=0.5), gain=7, pan=0.32)
     roots = [40, 40, 45, 45, 38, 47, 40, 47]
     for bar in range(24):
         at = bar * 4
@@ -382,34 +380,34 @@ def synthwave():
     p.track(
         "pad",
         Pad(unison=4, detune=16, cutoff=1500, attack=0.28, release=0.65),
-        gain=-10,
+        gain=-8,
         pan=-0.15,
         fx=(Chorus(side_only=True, mix=0.22, depth=0.001), Reverb(size=0.45, damp=0.5, mix=0.16)),
     )
-    p.track("bass", Bass(cutoff=250, env_amount=2.2, sub=0.35), gain=-4)
+    p.track("bass", Bass(cutoff=250, env_amount=2.2, sub=0.35), gain=0)
     p.track(
         "arp",
         Synth(wave="triangle", cutoff=2800, attack=0.003, decay=0.14, sustain=0.12, release=0.13),
-        gain=-6,
+        gain=-1,
         pan=0.35,
         fx=(Delay(time=0.75, feedback=0.28, mix=0.3, tone=3200), Reverb(size=0.35, mix=0.09)),
     )
     p.track(
         "lead",
         Lead(wave="saw", unison=2, detune=5, cutoff=2900, resonance=0.8, env_amount=0.7, release=0.18),
-        gain=-5,
+        gain=1,
         pan=-0.08,
         fx=(Delay(time=0.75, feedback=0.28, mix=0.2, tone=3300), Reverb(size=0.42, mix=0.14)),
     )
     p.track(
         "glass",
         FM(ratio=3, index=1.1),
-        gain=-10,
+        gain=0,
         pan=-0.4,
         fx=(Delay(time=1.5, feedback=0.32, mix=0.3), Reverb(size=0.5, mix=0.2)),
     )
-    p.track("drums", DrumKit(decay=0.82, punch=0.5), gain=-2, fx=(Room(size=0.35, decay=0.48, mix=0.1),))
-    chords = [(42, "m"), (38, "M"), (45, "M"), (40, "M")]
+    p.track("drums", DrumKit(decay=0.82, punch=0.5), gain=-6, fx=(Room(size=0.35, decay=0.48, mix=0.1),))
+    chords = [(42, "m"), (38, "M"), (47, "m"), (37, "7")]
     for bar in range(32):
         at = bar * 4
         root, quality = chords[(bar // 2) % 4]
@@ -491,7 +489,7 @@ def postrock():
     p.track(
         "clean",
         ElectricGuitar(drive=0.09, tone=0.38, pickup="neck", fretting=True, pick_noise=0.045, pickup_q=0.7),
-        gain=-1,
+        gain=1,
         pan=-0.3,
         fx=(
             Filter(kind="highpass", cutoff=130),
@@ -549,9 +547,9 @@ def postrock():
         fx=(Room(size=0.38, decay=0.4, damp=0.6, mix=0.1),),
     )
     p.track(
-        "cello", Cello(pressure=0.4, vibrato=0.05, bow_noise=0.012), gain=-11, pan=0.2, fx=(Reverb(size=0.5, mix=0.17),)
+        "cello", Cello(pressure=0.4, vibrato=0.05, bow_noise=0.012), gain=-6, pan=0.2, fx=(Reverb(size=0.5, mix=0.17),)
     )
-    progression = [(50, "m"), (46, "M"), (53, "M"), (48, "M"), (43, "m"), (46, "M"), (45, "7"), (50, "m")]
+    progression = [(50, "m"), (43, "M"), (46, "M"), (45, "7"), (50, "m"), (48, "M"), (43, "m"), (45, "7")]
     harmony = (
         progression[:4]
         + progression
