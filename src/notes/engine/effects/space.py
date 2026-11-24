@@ -87,6 +87,9 @@ class Chorus(Effect):
 
     `dry` scales the direct signal: 0 leaves only the modulated copies, an effect return to
     pan apart from the dry guitar (as 80s mixes put the chorus on the other side).
+    `side_only=True` returns only the difference of the modulated channels, added to the
+    dry stereo signal without the legacy output attenuation. Its mono sum is therefore
+    exactly the dry mono sum scaled by `dry`; this isolates width from mid coloration.
     """
 
     rate: float = 0.8
@@ -94,6 +97,7 @@ class Chorus(Effect):
     base_delay: float = 0.012
     mix: float = 0.5
     dry: float = 1.0
+    side_only: bool = False
 
     def process(self, x: np.ndarray, ctx: RenderContext) -> np.ndarray:
         x2 = _stereo(x)
@@ -105,7 +109,13 @@ class Chorus(Effect):
             lfo = 0.5 * (1.0 + np.sin(TAU * self.rate * t + ch * np.pi / 2.0))
             lag = (self.base_delay + self.depth * lfo) * ctx.sr
             wet = np.interp(idx - lag, idx, x2[ch], left=0.0)
-            out[ch] = (self.dry * x2[ch] + self.mix * wet) / (1.0 + 0.5 * self.mix)
+            if self.side_only:
+                out[ch] = wet
+            else:
+                out[ch] = (self.dry * x2[ch] + self.mix * wet) / (1.0 + 0.5 * self.mix)
+        if self.side_only:
+            side = (out[0] - out[1]) / 2.0
+            return self.dry * x2 + self.mix * np.stack([side, -side])
         return out
 
     def tail(self, ctx: RenderContext) -> float:

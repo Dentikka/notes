@@ -86,6 +86,11 @@ calibrated to equal loudness, so a track's `gain` is dB relative to the others.
 **Effects**: `Reverb` (Freeverb), `Delay` (tempo-synced), `Chorus`, `Compressor`, `EQ`,
 `Filter`, `Drive`, `GuitarAmp`, `Cabinet`.
 
+`Chorus(side_only=True)` adds only the difference between its modulated channels.
+The dry mono sum is preserved (scaled by `dry`), so stereo width can be adjusted without
+chorus comb filtering in the mono mix. `dry=0` gives a pure side return. This mode omits
+the legacy chorus output attenuation; the default `side_only=False` keeps the previous sound.
+
 ## Command line
 
 ### Transcribe an isolated instrument stem
