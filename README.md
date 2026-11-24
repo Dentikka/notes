@@ -1188,6 +1188,13 @@ shape fit does not identify losses, physical geometry, pitch or recorded phases;
 validate later windows and new executions before adopting a preset. No existing
 source default or fitting method is replaced.
 
+`log_weighting="amplitude"` optionally weights the log-power errors by each
+reference band's amplitude relative to early total power. Linear-amplitude
+errors keep their original weights. This can prioritize dominant components when
+the source cannot match many strong and weak components simultaneously. The
+default `"uniform"` retains the previous result. Costs from the two criteria are
+not directly comparable, and neither criterion certifies realism.
+
 `notes.ears.fit_modal_pluck(observations, pick_reference="auto")` fits three
 shared effective controls: pluck position, pickup position and force bandwidth.
 Each `ModalPluckObservation` supplies a known pitch/string, fundamental, stiffness,
