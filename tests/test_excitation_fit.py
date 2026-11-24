@@ -2,10 +2,11 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-from notes import ElectricGuitar
+from notes import ElectricGuitar, Note, Song, Track
 from notes.ears import ExcitationBasis, excitation_basis, fit_excitation_gains
 from notes.ears.excitation_fit import _quadratic_bands
-from notes.engine import RenderContext, Voice
+from notes.engine import RenderContext, Voice, render_score
+from notes.engine.dsp import stable_seed
 from scipy.signal import stft
 
 
@@ -60,6 +61,35 @@ def test_fit_recovers_synthetic_magnitudes_without_carrier_phase_transfer():
     pa /= pa.sum()
     pb /= pb.sum()
     assert np.mean(abs(pa - pb)) < 1e-7
+
+
+def test_basis_with_pickup_insert_matches_full_renderer_and_note_overrides():
+    sr = 12000
+    ctx = RenderContext(sr, 60)
+    inst = ElectricGuitar(amplified=False, pickup_q=.7, pickup_cutoff=2300.,
+                         pluck_sampling='spectral', dispersion_fit='bracketed')
+    gains = (.4, 2.8, 1.2)
+    note = Note(48, dur=1.2, vel=.7).param(string=5, pitch_interpolation='sinc', excitation_gains=gains)
+    score = Song(Track('test', inst)(note), bpm=60, sample_rate=sr, seed=271, loudness=-35).compile()
+    e = score.events[0]
+    seed = stable_seed(score.seed, e.track, str(e.time), e.pitch, 0)
+    v = Voice(440. * 2 ** ((48. - 69.) / 12), 48., .8, .7, {'string': 5, 'pitch_interpolation': 'sinc'})
+
+    def render(g):
+        model = replace(inst, excitation_gains=g)
+        x = model.voice(v, ctx, np.random.default_rng(seed))
+        for effect in model.inserts():
+            x = effect.process(x, ctx)
+        return x[:9600]
+
+    basis = excitation_basis(render, controls=3)
+    native = render_score(score, workers=1)
+    assert native.stats['limiter_db'] == 0
+    actual = native.audio.mean(axis=0)[:9600]
+    expected = basis.audio(gains)
+    actual /= np.linalg.norm(actual)
+    expected /= np.linalg.norm(expected)
+    np.testing.assert_allclose(actual, expected, rtol=1e-7, atol=1e-10)
 
 
 def test_fit_ignores_unrequested_tail():

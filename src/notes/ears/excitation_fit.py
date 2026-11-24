@@ -64,7 +64,8 @@ def excitation_basis(
     sample count and fresh identically seeded RNG each time. Zero and unit control
     vectors are used; a non-unity probe rejects nonlinear or nondeterministic
     callbacks. Use the dry floating voice before master loudness normalization,
-    clipping or an amplifier. For ElectricGuitar this fits excitation_gains, not
+    clipping or an amplifier. Include the linear pickup/insert filters used by
+    the actual renderer. For ElectricGuitar this fits excitation_gains, not
     independent output partial amplitudes. Existing defaults are untouched.
     """
     if (isinstance(controls, bool) or not isinstance(controls, int) or not 1 <= controls <= 80

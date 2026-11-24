@@ -1141,7 +1141,8 @@ For a dry voice that is affine in its excitation controls,
 `notes.ears.excitation_basis(render, controls=12)` builds generated constant/unit
 responses and checks a non-unity probe. The callback must use the same note,
 losses, tuning, sample count and identically seeded fresh RNG every time. Return
-floating mono audio before master normalization, limiting and amplification.
+floating mono audio before master normalization, limiting and amplification,
+including the linear pickup/insert filters that the actual renderer will apply.
 Nonlinear or nondeterministic callbacks fail the probe. For example, render an
 `ElectricGuitar(amplified=False)` with the supplied `excitation_gains` tuple.
 
